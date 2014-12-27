@@ -5,6 +5,7 @@ OCAMLDEP   = @OCAMLFIND@ ocamldep
 OCAMLDOC   = @OCAMLFIND@ ocamldoc -html -colorize-code -all-params
 OCAMLMKTOP = @OCAMLFIND@ ocamlmktop -g
 QTEST      = qtest
+DOCDIR    ?= doc/
 WARNS      = Ael-31-41-44-45
 override OCAMLOPTFLAGS += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir) -inline 9 -S
 override OCAMLFLAGS    += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir)
@@ -107,7 +108,7 @@ dep: dep-spec
 
 doc: $(SOURCES)
 	mkdir -p $@
-	$(OCAMLDOC) $(SYNTAX) -d doc $^
+	$(OCAMLDOC) $(SYNTAX) -package "$(REQUIRES)" -d $(DOCDIR) $^
 
 clear:
 	sed -i -e 's/[ 	]\+$$//' $(wildcard *.ml *.mli *.c *.scm)

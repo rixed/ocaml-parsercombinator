@@ -1,7 +1,7 @@
 top_srcdir = .
 PKG_NAME = parsercombinator
 SOURCES  = \
-	parsercombinator.ml
+	parserCombinator.ml
 
 C_SOURCES =
 LIBS =

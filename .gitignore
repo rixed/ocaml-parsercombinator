@@ -21,3 +21,4 @@ conf-check.old
 /config.status
 autom4te.cache
 oUnit-anon.cache
+doc/
