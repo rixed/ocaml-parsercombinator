@@ -18,7 +18,6 @@ all_tests.ml
 conf-check.old
 /Makefile
 /make.common
-/configure
 /config.status
 autom4te.cache
 oUnit-anon.cache
