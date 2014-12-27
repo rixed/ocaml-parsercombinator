@@ -1,0 +1,48 @@
+top_srcdir = .
+PKG_NAME = parsercombinator
+SOURCES  = \
+	parsercombinator.ml
+
+C_SOURCES =
+LIBS =
+
+REQUIRES = batteries
+
+EXAMPLES_BYTE =
+EXAMPLES_OPT = $(EXAMPLES_BYTE:.byte=.opt)
+EXAMPLES = $(EXAMPLES_BYTE) $(EXAMPLES_OPT)
+
+SYNTAX =
+
+.PHONY: all check-spec check-files clean-spec dep-spec
+#all: $(XARCHIVE) xexamples
+all: $(ARCHIVE) examples
+
+include $(top_srcdir)/make.common
+
+opt: $(XARCHIVE)
+xexamples: $(XARCHIVE) $(EXAMPLES_OPT)
+examples: $(ARCHIVE) $(EXAMPLES_BYTE)
+$(EXAMPLES_BYTE): $(ARCHIVE)
+$(EXAMPLES_OPT): $(XARCHIVE)
+
+#check.byte: $(ARCHIVE)
+#check.opt: $(XARCHIVE)
+#check-spec: check.byte
+#	@./check.byte || echo "custom checks FAILED"
+check-spec:
+
+check-files: asn1.opt
+	@for f in testfiles/*.asn1 ; do \
+		echo -n "$$(basename $$f) " ;\
+		if timeout 30s ./asn1.opt check $$f > /dev/null 2>&1; then \
+			echo "Ok" ;\
+		else \
+			echo "FAIL!" ;\
+		fi ;\
+	 done
+
+clean-spec:
+
+dep-spec:
+
