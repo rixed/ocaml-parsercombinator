@@ -3,12 +3,18 @@ let (|?) = Option.(|?)
 let (/@) a b = List.map b a
 let (//@) a b = List.filter_map b a
 
-type 'b unparsed = int * 'b list
+type 'b unparsed = int * 'b list (* position * list of things left to parse *)
 
 (* All parsers are stateless *)
 type error = string * int (* msg and where we failed (length of what was parsed) *)
 type ('a, 'b) parzer_result = ('a * 'b unparsed) list
 type ('a, 'b) parzer = 'b unparsed (* tokens to add *) -> ('a, 'b) parzer_result (* possible results *)
+
+let parzer_result_printer print_res print_tok =
+  let single_result_printer fmt = function
+    | res, (_, []) -> print_res fmt res
+    | res, (n, rest) -> Printf.fprintf fmt "%a until %d, rest %a" print_res res n (List.print print_tok) rest in
+  List.print single_result_printer
 
 let max_error = ref None
 let reset_parse_error () = max_error := None
@@ -43,8 +49,8 @@ let get_error ?input () =
 
 (* unconditionally returns something - useful for bind *)
 let return res bs = [ res, bs ]
-(*$= return & ~printer:dump
-  (return `glop [ 1; 2 ]) [`glop, [1; 2]]
+(*$= return & ~printer:(IO.to_string (parzer_result_printer String.print Int.print))
+  ["glop", (0, [1; 2])] (return "glop" (0, [ 1; 2 ]))
  *)
 
 (* fails unconditionally *)
@@ -56,15 +62,15 @@ let fail ?msg bs = match msg with
 let eof = function
     | _pos, [] as bs -> [ (), bs ]
     | bs -> failure "EOF expected" bs
-(*$= eof & ~printer:dump
-  (eof (0,['X'])) []
-  (eof (0,[])) [(),(0,[])]
+(*$= eof & ~printer:(IO.to_string (parzer_result_printer Unit.print Int.print))
+  [] (eof (0,['X']))
+  [(),(0,[])] (eof (0,[]))
 *)
 
 (* Accept 'nothing' *)
 let nothing bs = return () bs
 
-(* Fail like p or consume nothing it p match *)
+(* Fail like p or consume nothing if p match *)
 let check p bs =
     let e = p bs in
     if e = [] then []
@@ -91,15 +97,15 @@ let upto delim_orig bs =
                 let rbs, past_bs' = List.split_at rb past_bs in
                 aux [] delim_orig past_bs' (pos-rb, List.rev_append rbs (snd bs))) in
     aux [] delim_orig [] bs
-(*$= upto & ~printer:dump
-  (upto [0;0] (0,[0;0])) [[0;0], (2,[])]
-  (upto [0;0] (0,[0])) []
-  (upto [0;0] (0,[])) []
-  (upto [0;0] (0,[1;0])) []
-  (upto [0;0] (0,[1])) []
-  (upto [0;0] (0,[1;2;3;0;0])) [[1;2;3;0;0], (5,[])]
-  (upto [0;0] (0,[1;2;3;0;0;4;5])) [[1;2;3;0;0], (5,[4;5])]
-  (upto [0;0] (0,[1;2;0;3;0;0;4;5])) [[1;2;0;3;0;0], (6,[4;5])]
+(*$= upto & ~printer:(IO.to_string (parzer_result_printer (List.print Int.print) Int.print))
+  [[0;0], (2,[])] (upto [0;0] (0,[0;0]))
+  [] (upto [0;0] (0,[0]))
+  [] (upto [0;0] (0,[]))
+  [] (upto [0;0] (0,[1;0]))
+  [] (upto [0;0] (0,[1]))
+  [[1;2;3;0;0], (5,[])] (upto [0;0] (0,[1;2;3;0;0]))
+  [[1;2;3;0;0], (5,[4;5])] (upto [0;0] (0,[1;2;3;0;0;4;5]))
+  [[1;2;0;3;0;0], (6,[4;5])] (upto [0;0] (0,[1;2;0;3;0;0;4;5]))
  *)
 
 let cond ?errmsg c = function
@@ -107,26 +113,26 @@ let cond ?errmsg c = function
     | rest -> match errmsg with None -> []
                             | Some m -> failure m rest
 
-let item i = cond ((=) i)
-(*$= item & ~printer:dump
-  (item 1 (0,[1;1;2;2])) [1, (1,[1;2;2])]
+let item ?errmsg i = cond ?errmsg ((=) i)
+(*$= item & ~printer:(IO.to_string (parzer_result_printer Int.print Int.print))
+  [1, (1,[1;2;2])] (item 1 (0,[1;1;2;2]))
  *)
 
 let range mi ma = cond (fun c -> c >= mi && c <= ma)
-(*$= range & ~printer:dump
-  (range 1 5 (0,[1;2;3])) [1, (1,[2;3])]
-  (range 1 5 (0,[5;2;3])) [5, (1,[2;3])]
-  (range 1 5 (0,[6;2;3])) []
+(*$= range & ~printer:(IO.to_string (parzer_result_printer Int.print Int.print))
+  [1, (1,[2;3])] (range 1 5 (0,[1;2;3]))
+  [5, (1,[2;3])] (range 1 5 (0,[5;2;3]))
+  [] (range 1 5 (0,[6;2;3]))
  *)
 
 let take n (pos,bs) =
     try let res, rem = List.split_at n bs in
         [ res, (pos+n, rem) ]
     with Invalid_argument _ -> []
-(*$= take & ~printer:dump
-  (take 2 (0,[1;2;3;4;5])) [[1;2], (2,[3;4;5])]
-  (take 3 (0,[1;2;3])) [[1;2;3], (3,[])]
-  (take 3 (0,[1;2])) []
+(*$= take & ~printer:(IO.to_string (parzer_result_printer (List.print Int.print) Int.print))
+  [[1;2], (2,[3;4;5])] (take 2 (0,[1;2;3;4;5]))
+  [[1;2;3], (3,[])] (take 3 (0,[1;2;3]))
+  [] (take 3 (0,[1;2]))
 *)
 
 (* equivalent to [take 1 >>: List.hd], only faster *)
@@ -139,6 +145,14 @@ let map_res p f bs =
     p bs /@ fun (res, rem) -> (f res, rem)
 
 let (>>:) = map_res
+
+(* Record [msg] as an error message if parser [p] fails to parse anything
+ * from [bs]. This is different from [p |~ fail msg] in that the later
+ * would always set an error message ([|~] is not exclusive) *)
+let with_err msg p bs =
+  match p bs with
+  | [] -> failure msg bs
+  | res -> res
 
 (* Filter_map every results returned by p through f *)
 type 'a map_filter_res = Ok of 'a | Fail of string | FailSilent
@@ -215,32 +229,32 @@ let rec repeat ?sep ?min ?max p bs =
             (p ++ repeat ?min:(pred_opt min) ?max:(pred_opt max) p >>: fun (v,vs) -> v::vs) bs
         | _ ->
             (optional (repeat ~min:1 ?max p) >>: Option.default []) bs)
-(*$= repeat & ~printer:dump
-  (repeat (item 1) (0,[3;1;2]) |> List.sort compare)                       [[],(0,[3;1;2])]
-  (repeat (item 1) (0,[1;1;1;2]) |> List.sort compare)                     [[],(0,[1;1;1;2]); [1],(1,[1;1;2]); [1;1],(2,[1;2]); [1;1;1],(3,[2])]
-  (repeat ~max:1 (item 1) (0,[1;1;1;2]) |> List.sort compare)              [[],(0,[1;1;1;2]); [1],(1,[1;1;2])]
-  (repeat ~max:2 (item 1) (0,[1;1;1;2]) |> List.sort compare)              [[],(0,[1;1;1;2]); [1],(1,[1;1;2]); [1;1],(2,[1;2])]
-  (repeat ~max:3 (item 1) (0,[1;1;1;2]) |> List.sort compare)              [[],(0,[1;1;1;2]); [1],(1,[1;1;2]); [1;1],(2,[1;2]); [1;1;1],(3,[2])]
-  (repeat ~min:2 ~max:4 (item 1) (0,[]) |> List.sort compare)              []
-  (repeat ~min:2 ~max:4 (item 1) (0,[1]) |> List.sort compare)             []
-  (repeat ~min:2 ~max:4 (item 1) (0,[1;1]) |> List.sort compare)           [[1;1],(2,[])]
-  (repeat ~min:2 ~max:4 (item 1) (0,[1;1;2]) |> List.sort compare)         [[1;1],(2,[2])]
-  (repeat ~min:2 ~max:4 (item 1) (0,[1;1;1;2]) |> List.sort compare)       [[1;1],(2,[1;2]); [1;1;1],(3,[2])]
-  (repeat ~min:2 ~max:4 (item 1) (0,[1;1;1;1;2]) |> List.sort compare)     [[1;1],(2,[1;1;2]); [1;1;1],(3,[1;2]); [1;1;1;1],(4,[2])]
-  (repeat ~min:2 ~max:4 (item 1) (0,[1;1;1;1;1;2]) |> List.sort compare)   [[1;1],(2,[1;1;1;2]); [1;1;1],(3,[1;1;2]); [1;1;1;1],(4,[1;2])]
-  (repeat ~min:1 ~max:2 ~sep:(item 0) (item 1) (0,[1;0;1;0;1;2]) |> List.sort compare) [[1],(1,[0;1;0;1;2]); [1;1],(3,[0;1;2])]
+(*$= repeat & ~printer:(IO.to_string (parzer_result_printer (List.print Int.print) Int.print))
+  [[],(0,[3;1;2])] (repeat (item 1) (0,[3;1;2]) |> List.sort compare)
+  [[],(0,[1;1;1;2]); [1],(1,[1;1;2]); [1;1],(2,[1;2]); [1;1;1],(3,[2])] (repeat (item 1) (0,[1;1;1;2]) |> List.sort compare)
+  [[],(0,[1;1;1;2]); [1],(1,[1;1;2])] (repeat ~max:1 (item 1) (0,[1;1;1;2]) |> List.sort compare)
+  [[],(0,[1;1;1;2]); [1],(1,[1;1;2]); [1;1],(2,[1;2])] (repeat ~max:2 (item 1) (0,[1;1;1;2]) |> List.sort compare)
+  [[],(0,[1;1;1;2]); [1],(1,[1;1;2]); [1;1],(2,[1;2]); [1;1;1],(3,[2])] (repeat ~max:3 (item 1) (0,[1;1;1;2]) |> List.sort compare)
+  [] (repeat ~min:2 ~max:4 (item 1) (0,[]) |> List.sort compare)
+  [] (repeat ~min:2 ~max:4 (item 1) (0,[1]) |> List.sort compare)
+  [[1;1],(2,[])] (repeat ~min:2 ~max:4 (item 1) (0,[1;1]) |> List.sort compare)
+  [[1;1],(2,[2])] (repeat ~min:2 ~max:4 (item 1) (0,[1;1;2]) |> List.sort compare)
+  [[1;1],(2,[1;2]); [1;1;1],(3,[2])] (repeat ~min:2 ~max:4 (item 1) (0,[1;1;1;2]) |> List.sort compare)
+  [[1;1],(2,[1;1;2]); [1;1;1],(3,[1;2]); [1;1;1;1],(4,[2])] (repeat ~min:2 ~max:4 (item 1) (0,[1;1;1;1;2]) |> List.sort compare)
+  [[1;1],(2,[1;1;1;2]); [1;1;1],(3,[1;1;2]); [1;1;1;1],(4,[1;2])] (repeat ~min:2 ~max:4 (item 1) (0,[1;1;1;1;1;2]) |> List.sort compare)
+  [[1],(1,[0;1;0;1;2]); [1;1],(3,[0;1;2])] (repeat ~min:1 ~max:2 ~sep:(item 0) (item 1) (0,[1;0;1;0;1;2]) |> List.sort compare)
 *)
 
 let several ?sep p bs = repeat ?sep ~min:1 p bs
-(*$= several & ~printer:dump
-  (several (item 1) (0,[1;1;1;2]) |> List.sort compare) [[1],(1,[1;1;2]); [1;1],(2,[1;2]); [1;1;1],(3,[2])]
-  (several (item 1) (0,[3;2;1]) |> List.sort compare)   []
+(*$= several & ~printer:(IO.to_string (parzer_result_printer (List.print Int.print) Int.print))
+  [[1],(1,[1;1;2]); [1;1],(2,[1;2]); [1;1;1],(3,[2])] (several (item 1) (0,[1;1;1;2]) |> List.sort compare)
+  [] (several (item 1) (0,[3;2;1]) |> List.sort compare)
 *)
 
 let any ?sep p bs = repeat ?sep p bs
-(*$= any & ~printer:dump
-  (any (item 1) (0,[1;1;2]) |> List.sort compare) [[],(0,[1;1;2]); [1],(1,[1;2]); [1;1],(2,[2])]
-  (any (item 1) (0,[3;2;1]) |> List.sort compare) [[],(0,[3;2;1])]
+(*$= any & ~printer:(IO.to_string (parzer_result_printer (List.print Int.print) Int.print))
+  [[],(0,[1;1;2]); [1],(1,[1;2]); [1;1],(2,[2])] (any (item 1) (0,[1;1;2]) |> List.sort compare)
+  [[],(0,[3;2;1])] (any (item 1) (0,[3;2;1]) |> List.sort compare)
 *)
 
 (* FIXME: simplify using cons ? *)
@@ -251,26 +265,26 @@ let rec several_greedy ?sep p bs =
         | [] -> [[res], rest]
         | l' -> List.map (fun (r,rs) -> (res::r), rs) l') |>
     List.flatten
-(*$= several_greedy & ~printer:dump
-  (several_greedy (item 1) (0,[1;1;1;2]))                     [[1;1;1],(3,[2])]
-  (several_greedy (item 1) (0,[3;2;1]))                       []
-  (several_greedy ~sep:(item 0) (item 1) (0,[1;0;1;0;1;2]))   [[1;1;1],(5,[2])]
-  (several_greedy ~sep:(item 0) (item 1) (0,[1;0;1;0;1;0;2])) [[1;1;1],(5,[0;2])]
+(*$= several_greedy & ~printer:(IO.to_string (parzer_result_printer (List.print Int.print) Int.print))
+  [[1;1;1],(3,[2])] (several_greedy (item 1) (0,[1;1;1;2]))
+  [] (several_greedy (item 1) (0,[3;2;1]))
+  [[1;1;1],(5,[2])] (several_greedy ~sep:(item 0) (item 1) (0,[1;0;1;0;1;2]))
+  [[1;1;1],(5,[0;2])] (several_greedy ~sep:(item 0) (item 1) (0,[1;0;1;0;1;0;2]))
 *)
 
 let all ?sep p bs =
     match several_greedy ?sep p bs with
     | [] -> [[],bs]
     | l -> l
-(*$= all & ~printer:dump
-  (all (item 1) (0,[1;1;1;2]) |> List.sort compare) [[1;1;1],(3,[2])]
-  (all (item 1) (0,[2]) |> List.sort compare)       [[],(0,[2])]
+(*$= all & ~printer:(IO.to_string (parzer_result_printer (List.print Int.print) Int.print))
+  [[1;1;1],(3,[2])] (all (item 1) (0,[1;1;1;2]) |> List.sort compare)
+  [[],(0,[2])] (all (item 1) (0,[2]) |> List.sort compare)
 *)
 
 let times ?sep n p bs = repeat ?sep ~min:n ~max:n p bs
-(*$= times & ~printer:dump
-  (times 2 (item 1) (0,[1;1;1;3])) [ [1;1],(2,[1;3]) ]
-  (times 0 (item 1) (0,[1;1;1;3])) [ [],(0,[1;1;1;3]) ]
+(*$= times & ~printer:(IO.to_string (parzer_result_printer (List.print Int.print) Int.print))
+  [ [1;1],(2,[1;3]) ] (times 2 (item 1) (0,[1;1;1;3]))
+  [ [],(0,[1;1;1;3]) ] (times 0 (item 1) (0,[1;1;1;3]))
 *)
 
 (* Run the results of p through f, that will return a new result.
@@ -330,14 +344,14 @@ let char ?(case_sensitive=true) c =
 (* Special seq when you wait for a list of chars: *)
 let string ?case_sensitive s =
     let strlen = String.length s in
-    assert(strlen > 0) ;
+    assert (strlen > 0) ;
     let rec loop i strlen s =
         if i = strlen - 1 then (* last char *) (
             ign (char ?case_sensitive s.[i])
         ) else (
             ign (char ?case_sensitive s.[i] ++ loop (succ i) strlen s)
         ) in
-    loop 0 strlen s
+    loop 0 strlen s >>: fun () -> s
 
 let alphabetic = cond Char.is_letter
 let numeric = cond Char.is_digit
@@ -380,12 +394,12 @@ let digit base =
             (c >= 'a' && c < (char_of_int (int_of_char 'a' + (base - 10)))) ||
             (c >= 'A' && c < (char_of_int (int_of_char 'A' + (base - 10))))
         ))) >>: c2i
-(*$= digit & ~printer:dump
-  ((digit  2 +- eof) (0,['0'])) [0,(1,[])]
-  ((digit  2 +- eof) (0,['1'])) [1,(1,[])]
-  ((digit  2 +- eof) (0,['2'])) []
-  ((digit 16 +- eof) (0,['a'])) [10,(1,[])]
-  ((digit 16 +- eof) (0,['F'])) [15,(1,[])]
+(*$= digit & ~printer:(IO.to_string (parzer_result_printer Int.print Int.print))
+  [0,(1,[])] ((digit  2 +- eof) (0,['0']))
+  [1,(1,[])] ((digit  2 +- eof) (0,['1']))
+  [] ((digit  2 +- eof) (0,['2']))
+  [10,(1,[])] ((digit 16 +- eof) (0,['a']))
+  [15,(1,[])] ((digit 16 +- eof) (0,['F']))
 *)
 
 module Number (N : BatNumber.NUMERIC_BASE) =
@@ -437,16 +451,16 @@ include Number (Int)
 module Number32 = Number (Int32)
 module Number64 = Number (Int64)
 
-(*$= num & ~printer:dump
-  (num 10 (0,['1';'2']) |> List.sort compare) [1,(1,['2']); 12,(2,[])]
-  (num 10 (0,['1']) |> List.sort compare)     [1,(1,[])]
-  (num 10 (0,['0']) |> List.sort compare)     [0,(1,[])]
-  (num 10 (0,['0';'x']) |> List.sort compare) [0,(1,['x'])]
+(*$= num & ~printer:(IO.to_string (parzer_result_printer Int.print Char.print))
+  [1,(1,['2']); 12,(2,[])] (num 10 (0,['1';'2']) |> List.sort compare)
+  [1,(1,[])] (num 10 (0,['1']) |> List.sort compare)
+  [0,(1,[])] (num 10 (0,['0']) |> List.sort compare)
+  [0,(1,['x'])] (num 10 (0,['0';'x']) |> List.sort compare)
 *)
 
-(*$= c_like_number & ~printer:dump
-  (c_like_number (0,['1';'2';'3']) |> List.sort compare)     [1,(1,['2';'3']);    12,(2,['3']); 123,(3,[])]
-  (c_like_number (0,['0';'x';'1';'2']) |> List.sort compare) [0,(1,['x';'1';'2']); 1,(3,['2']);  18,(4,[])]
-  (c_like_number (0,['0';'b';'1';'0']) |> List.sort compare) [0,(1,['b';'1';'0']); 1,(3,['0']);   2,(4,[])]
-  (c_like_number (0,['0';'x']) |> List.sort compare)         [0,(1,['x'])]
+(*$= c_like_number & ~printer:(IO.to_string (parzer_result_printer Int.print Char.print))
+  [1,(1,['2';'3']);    12,(2,['3']); 123,(3,[])] (c_like_number (0,['1';'2';'3']) |> List.sort compare)
+  [0,(1,['x';'1';'2']); 1,(3,['2']);  18,(4,[])] (c_like_number (0,['0';'x';'1';'2']) |> List.sort compare)
+  [0,(1,['b';'1';'0']); 1,(3,['0']);   2,(4,[])] (c_like_number (0,['0';'b';'1';'0']) |> List.sort compare)
+  [0,(1,['x'])] (c_like_number (0,['0';'x']) |> List.sort compare)
 *)
