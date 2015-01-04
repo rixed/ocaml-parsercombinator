@@ -146,6 +146,13 @@ let map_res p f bs =
 
 let (>>:) = map_res
 
+(* whenever [p] returns a result, replace this result with [x] *)
+let replace p x =
+  p >>: fun _ -> x
+
+let (>>>) = replace
+
+
 (* Record [msg] as an error message if parser [p] fails to parse anything
  * from [bs]. This is different from [p |~ fail msg] in that the later
  * would always set an error message ([|~] is not exclusive) *)
