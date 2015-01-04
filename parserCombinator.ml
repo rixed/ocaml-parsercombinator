@@ -335,6 +335,12 @@ let pipe (p1 : ('a,'b) parzer)
   p (0,[5;0;42]) = []
  *)
 
+(* Try all of the given parser in turn *)
+let rec either ?msg = function
+  | [] -> fail ?msg
+  | p::p' -> p |~ either ?msg p'
+
+
 (* Various useful parsers, mostly on chars *)
 
 let char ?(case_sensitive=true) c =
