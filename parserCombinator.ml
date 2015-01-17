@@ -77,7 +77,16 @@ let check p bs =
     else [ (), bs ]
 (*$T check
   not @@ List.is_empty (check eof (0,[]))
-  List.is_empty (check eof (0,['X']))
+  List.is_empty        (check eof (0,['X']))
+  List.is_empty        (check (item 2) (0,[1;2]))
+  not @@ List.is_empty (check (item 1) (0,[1;2]))
+*)
+
+(* invert the result of p - useful with check *)
+let no p bs =
+    if List.is_empty (p bs) then [ (), bs ] else []
+(*$T no
+  List.is_empty (check (no (item 1)) (0,[1;2]))
 *)
 
 let upto delim_orig bs =
@@ -209,9 +218,16 @@ let (|~) p1 p2 bs =
 
 let optional p =
     some p |~ return None
+(*$= optional & ~printer:(IO.to_string (parzer_result_printer (Option.print Int.print) Int.print))
+  [None,(0,[1;2]); Some 1,(1,[2])] (optional (item 1) (0,[1;2]) |> List.sort compare)
+*)
 
-let optional_greedy p bs =
-    p bs /@ fun (res,rem) -> Some res, rem
+let optional_greedy p =
+    some p |~ none (check (no p))
+(*$= optional_greedy & ~printer:(IO.to_string (parzer_result_printer (Option.print Int.print) Int.print))
+  [Some 1,(1,[2])] (optional_greedy (item 1) (0,[1;2]) |> List.sort compare)
+*)
+
 
 let optional_default def p =
     p |~ return def
@@ -279,6 +295,7 @@ let rec several_greedy ?sep p bs =
   [[1;1;1],(5,[0;2])] (several_greedy ~sep:(item 0) (item 1) (0,[1;0;1;0;1;0;2]))
 *)
 
+(* same as several but allow for no match *)
 let all ?sep p bs =
     match several_greedy ?sep p bs with
     | [] -> [[],bs]
@@ -313,10 +330,6 @@ let bind p f bs =
 *)
 
 let (>>=) = bind (* as usual *)
-
-(* invert the result of p - useful with check *)
-let no p bs =
-    if List.is_empty (p bs) then [ (), bs ] else []
 
 (* Use the results of the first parser as the input elements of the second.
    Return the first result of p2.
