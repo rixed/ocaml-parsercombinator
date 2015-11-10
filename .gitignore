@@ -22,3 +22,8 @@ conf-check.old
 autom4te.cache
 oUnit-anon.cache
 doc/
+BoundedSet.ml
+Combinators.ml
+Corrections.ml
+Parsers.ml
+README.html

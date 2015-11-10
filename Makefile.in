@@ -1,12 +1,23 @@
-top_srcdir = .
+# vim:filetype=make
+top_srcdir = @top_srcdir@
 PKG_NAME = parsercombinator
-SOURCES  = \
-	parserCombinator.ml
 
+# First extract the code from README
+GEN_SOURCES = BoundedSet.ml Corrections.ml Parsers.ml Combinators.ml
+GEN_FILES = $(GEN_SOURCES) README.html
+
+SOURCES = $(GEN_SOURCES)
 C_SOURCES =
 LIBS =
 
+# For test extraction but do not contribute to the lib:
+EXTRA_SOURCES =
+EXTRA_REQUIRES = portia
+
+EXAMPLES_BYTE =
+
 REQUIRES = batteries
+
 
 EXAMPLES_BYTE =
 EXAMPLES_OPT = $(EXAMPLES_BYTE:.byte=.opt)
@@ -14,15 +25,24 @@ EXAMPLES = $(EXAMPLES_BYTE) $(EXAMPLES_OPT)
 
 SYNTAX =
 
-.PHONY: all check-spec clean-spec dep-spec
-#all: $(XARCHIVE) xexamples
-all: $(ARCHIVE) examples
+.PHONY: all loc doc check-spec clean-spec dep-spec
+all: $(XARCHIVE) examples README.html
+
+debug:
+	echo 'firstword=' $((firstword $GEN_SOURCES):.ml=.annot)
+
+# Do not depend on $(GEN_SOURCES:.ml=.cmo) so that we get the .annot file
+# even when some file does not compile.
+$((firstword $GEN_SOURCES):.ml=.annot):
+	cat $(GEN_SOURCES:.ml=.annot) > $@
+
+$(GEN_SOURCES): README.adoc
+	ocamlfind portia/portia -libdir "$$(ocamlfind query portia)" -syntax asciidoc -syntax ocaml $<
 
 include $(top_srcdir)/make.common
 
 opt: $(XARCHIVE)
-xexamples: $(XARCHIVE) $(EXAMPLES_OPT)
-examples: $(ARCHIVE) $(EXAMPLES_BYTE)
+examples: $(XARCHIVE) $(EXAMPLES_OPT)
 $(EXAMPLES_BYTE): $(ARCHIVE)
 $(EXAMPLES_OPT): $(XARCHIVE)
 
@@ -33,6 +53,14 @@ $(EXAMPLES_OPT): $(XARCHIVE)
 check-spec:
 
 clean-spec:
+	$(RM) $(GEN_FILES)
 
 dep-spec:
+	$(RM) $(GEN_SOURCES)
 
+install-spec:
+
+README.html: README.adoc
+	asciidoc -a data-uri -a icons -a toc -a max-width=55em --theme volnitsky -o $@ $<
+
+doc: README.html

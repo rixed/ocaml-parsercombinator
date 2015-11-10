@@ -1,0 +1,397 @@
+// vim:filetype=asciidoc expandtab spell spelllang=en ts=2 sw=2
+= Homegrown Parser Combinators with error detection
+rixed@happyleptic.org
+v0.1, 2015-10-27
+:toc:
+:numbered:
+:icons:
+:lang: en
+:encoding: utf-8
+
+== What is this?
+
+This document describe the implementation of a library to perform text
+parsing according to a technique called
+https://en.wikipedia.org/wiki/Parser_combinator[parser combinators] because the
+parser for a given grammar is build combining simpler parsers. This technique
+is fashionable although old and slow because it is simple and permissive.
+
+This is also an example of literate programming; in case the notations used in
+this document are unclear you can read about them in
+http://rixed.github.io/portia/notations.html[this document].
+
+== Requirements
+
+=== Parser Combinators
+
+Input text syntax does not bind to any rigid formal rule (we'd like to parse
+perl without executing it). Parser combinators are appealing
+because they make it possible to add new valid constructs without rethinking
+the whole grammar.
+
+=== Error detection?
+
+We want this parser to parse text that is already valid in order to analyze
+it. Only in a very limited number of cases will the input be invalid.
+Therefore, the error reporting need not detect typos or other user error.
+Essentially, we need error reports merely to debug the parser itself. So error
+reports must _only_ include the (best) partial result(s) and why they failed.
+
+It is very unfortunate though that even in those favorable circumstances detecting
+what is the best attempt in order to explain why this one failed requires the
+same expensive error detection techniques that to detect user typos.
+
+Indeed, the only way to detect the best attempt is: should this parser had
+behaved differently then the whole outcome would have been very different. In
+other words, should this parser accept this input as a valid token then we
+would have eventually parsed the whole input.
+
+It is hard to think of any trivial trick to make it less awfully explosive that
+it sounds, beyond constraining the exploratory search within an 'error budget'.
+
+Many of those ideas come from
+http://www.staff.science.uu.nl/~swier101/Papers/1999/SofSem99.pdf[Fast, Error
+Correcting Parser Combinators: A Short Tutorial], a XX^th^ century paper.
+
+== The type of the parser
+
+To be clearer, let's write down the usual type of a parser used with
+combinators, written in ML:
+
+.Typical parser type
+[source,ml]
+----
+type ('a, 'b) result = 'b * 'a list
+type ('a, 'b) parser = 'a list -> ('a, 'b) result list
+----
+
+Which reads like this: Calling α the type of the input tokens and β the type
+of the parsed inputs, a parser is a function that takes a list of α and
+returns a list of pairs composed of a β and a list of α, with the assumptions
+that the input list of α is the input stream of tokens to be parsed and that
+each output pair are a possible solution, composed of the result and the
+remaining list of token to parse. Ideally, a successful top level parser will
+thus return a list composed of a single pair (non ambiguity of the outcome)
+made of the final result and an empty list (no more input to be parsed). And
+when the parser fails to find any way to parse the input it returns a
+minimally informative empty list.
+
+Introducing the error budget changes this somewhat: we will try to
+artificially force the failing parsers to succeed in order to peek into the
+future and try to locate where a change would cause the parsing to succeed.
+This means that each individual result must be accompanied by a description of
+the (few) changes required to reach that point:
+
+.Parser type with error budget
+[source,ml]
+----
+type ('a, 'b) result = 'b * Corrections.t * 'a list
+type ('a, 'b) parser =
+  Corrections.t -> 'a list -> ('a, 'b) result list
+----
+
+Before looking closer to this new +Corrections.t+ type that would encode the corrections
+we must question the usage of a list of results as the return type. First, of
+course, a list if over-specified since the order of the possible result is not
+important; what we really want here is a set and we use a list only because it
+makes our code more terse. But more importantly, one may think that it is not
+enough to return an empty list in case of failure since we may also want to
+force artificially the failure of a parser; a possibility that we have
+dismissed without giving it proper consideration. Indeed, failing to recognize
+one form may enable a following parser to succeed. Consider for instance a C++
+like language with the erroneous input:
+
+----
+class form;
+for x = new form(...);
+----
+
+Obviously the intent was to write +form x = ...+. Once the parser have
+accepted the keyword +for+ as valid without questioning it then it is likely
+that the error message porting on what follows will be hard to understand. On
+another hand, if the parser also tried to force the failure of the keyword
+parser in this location then it will notice that everything would parse
+properly henceforth, suggesting a better error message.
+
+The price to pay for testing the failure of successful parsers is obviously high,
+though, and not only because of the additional time spent. Returning error
+descriptions alongside failures forces us to give up the elegant list of
+result as the main return type (indeed, the empty list is not enough any more
+to denote failure since we also want to return the updated errors description).
+
+It seems that only in the case of the exclusive alternative this problem will
+arise. Should we decide not to implement such a combinator, then the the above
+example ``either a keyword or a variable name that is not a keyword'' could
+still be written with inclusive alternative at the price of a redundant check:
++is_keyword OR (is_name AND (check (NOT is_keyword))+. In this case we could
+explore the failure of the +NOT is_keyword+ check and will find that should
++for+ be a valid variable name then the input would be valid, which will make
+a good enough error reporting.
+
+So we will not implement exclusive alternative and will instead explore forced
+success of the +check+ parser.
+
+Now, what's this +Corrections.t+ type?
+
+To be able to build a useful error message we must point at the position in
+the original stream of tokens where some change had to be made in order to
+parse the input stream of tokens (if not in full at least more than without
+that change). Recording a position in the original input stream of tokens is
+less trivial than it sounds because we are combining the parsers, and one of
+the way to combine parsers is to run a parser on the results of another one,
+therefore loosing track of the position in the original stream. For generality
+let's introduce a new type ɣ to denote a position (could be merely the integer
+offset in the original stream or a more elaborate line and column number, or
+anything) and let's assume we read from the original stream not only the
+tokens but also the positions. And since we are reading the positions from the
+input stream we need to introduce a special value for representing the end of
+input, that we will call +EOF+:
+
+.Corrections: the type for positions
+[source,ml]
+----
+type 'c position = Coord of 'c | EOF
+----
+
+So we need to record all changes that have already occurred (what and where)
+and how many changes we are still allowed to do. The ``What'' is limited to
+any string description of the parser that we forced to succeed. 
+
+.Corrections: type
+[source,ml]
+----
+type 'c t = ('c position * string) BoundedSet.t
+----
+
+where +BoundedSet+ is an unordered container with a maximum capacity (the
+maximum amount of changes allowed) and which API will become clearer as we
+encounter the few required functions.
+
+Trivially, to add an error at position +pos+ to the correction list, with
+message +msg+:
+.Corrections: recording a change
+[source,ml]
+----
+let change_at pos msg corr =
+  BoundedSet.add corr (pos, msg)
+----
+
+Now that we know what corrections look like and that we have to read the
+positions alongside the tokens from the input stream, we can finally write the 
+definitive parser type:
+
+.Parsers: final type`
+[source,ml]
+----
+type ('a, 'b, 'c) result = 'b * ('c Corrections.t) * ('a * 'c) list
+type ('a, 'b, 'c) t =
+  'c Corrections.t -> ('a * 'c) list -> ('a, 'b, 'c) result list
+----
+
+It is sometime unfortunate that OCaml compiler do not preserve the type
+variable names throughout a program. In this document though we will stick
+with those:
+
+- α (+'a+) stands for the type of input tokens,
+- β (+'b+) stands for the type of parsing results,
+- ɣ (+'c+) stands for the type of positions in the input stream.
+
+== Base parsers (to be combined)
+
+=== Fail, Return and Check
+
+The simplest parsers that does nothing are +return+ and +fail+. They do not
+consume anything from the input but merely return a single result or no result
+at all. Given our parser type, here are their implementations:
+
+.Parsers: fail and return
+[source,ml]
+----
+let fail _corr _unp = []
+let return x corr unp = [x, corr, unp]
+----
+
+Another parser that does not consume any input is the +check+ parser that we
+have mentioned earlier. It is actually a combinator since it takes another
+parser as parameter. It checks that the given parser succeed but then return
+the input stream unchanged (with a +unit+ result). The only thing interesting
+is that it explores forcing a success in case the check fails.
+
+.Parsers: check
+[source,ml]
+----
+open Corrections
+
+let check p msg corr unp =
+  match p corr unp with
+  | [] ->
+    if BoundedSet.is_full corr then []
+    else [(), change_at (next_position unp) msg corr, unp]
+  | _ -> [(), corr, unp]
+----
+
+with:
+
+.Corrections: next_position in a (possibly empty) stream
+[source,ml]
+----
+let next_position = function
+  | [] -> EOF
+  | (_tok, pos)::_ -> Coord pos
+----
+
+=== Tests
+
+It's is important to have a test infrastructure in place before it's needed.
+Given literate programing allows us to mix code and tests at ease we do not
+need to get this feature from such a tool as
+https://github.com/vincent-hugot/iTeML[qtest] and will use
+http://ounit.forge.ocamlcore.org/api-ounit/index.html[oUnit] directly.
+
+TODO
+
+=== First non trivial parser
+
+The more general of parsers that do consume some input is the +cond+ parser,
+which tries to recognize a condition on the next token (for instance that it
+is equal to a given value). So +cond+ is a function that takes a predicate on
+token and returns a parser that, when given this token, returns it (and
+consumes it), or otherwise fails (with a message describing what it was
+looking for, in case we have to build an error message for that step later
+on).
+
+Now that we know the type, writing the code is rather easy:
+
+.Parsers: the cond parser
+[source,ml]
+----
+let cond msg f x corr unp =
+  let res, chg = (match unp with
+  | [] ->
+    [], [x (* <1> *), change_at EOF msg corr, unp]
+  | (tok, _pos)::unp' when f tok ->
+    [tok, corr, unp'], []
+  | (tok, pos)::unp' ->
+    [], [tok, change_at (Coord pos) msg corr, unp']) in
+  if BoundedSet.is_full corr || chg = [] then res
+  else List.rev_append res chg
+----
+
+So for each possible case (+EOF+, +f+ succeeds or +f+ fails) we prepare both
+the result and the altered result and return both whenever possible.
+
+<1> Here we need an example value +x+ of type β in order to change
+the outcome of a failure at end of input. Which value exactly is not really a
+concern since only its type matters (although the error message could print it
+as an example, as OCaml compiler does when complaining about an incomplete
+pattern matching.
+
+It is possible to build many simpler and more convenient parsers on top of
++cond+, such as +item+ which expects a specific token in the input:
+
+.Parsers: the item parser
+[source,ml]
+----
+let item ?(msg="some item") x =
+  cond msg ((=) x) x
+----
+
+== Combinators
+
+The three first combinators to consider are the succession of two given
+parsers (binding), the alternative of two parsers, and the pipe of one parser
+result into the input of another one.
+
+Notice that since we are now merely combining parsers we do not have to care
+about error correction any more: only the base parsers need to pretend
+succeeding when they fail.
+
+.Combinators: binding two parsers
+[source,ml]
+----
+let bind p1 p2 corr unp =
+  match p1 corr unp with
+  | [] -> [] (* if p1 fails there is no need to try p2 *)
+  | res_list1 -> (* for each possible result, try to continue parsing with p2 *)
+    List.fold_left (fun res_list' (x1, corr1, unp1) ->
+      match p2 corr1 unp1 with
+      | [] -> res_list'
+      | res_list2 ->
+        (* The final result set is the product of each
+           result of p1 with all following results of p2 *)
+        List.fold_left (fun res_list'' (x2, corr2, unp2) ->
+          ((x1,x2), corr2, unp2)::res_list'') res_list' res_list2)
+      [] res_list1
+----
+
+The second most useful combinator is the alternative:
+
+.Combinators: alternative
+[source,ml]
+----
+let either p1 p2 corr unp =
+  let res_list1 = p1 corr unp in
+  let res_list2 = p2 corr unp in
+  List.rev_append res_list1 res_list2
+----
+
+Notice that results are really sets not list, so the order in which the
+alternatives are listed does not matter.
+
+Finally, it is often useful to have a first parser output a list of result
+which are then feed into another parser input:
+
+.Combinators: pipe
+[source,ml]
+----
+let pipe p1 p2 corr unp =
+  let res_list1 = p1 corr unp in
+  List.fold_left (fun res_list (x1, corr1, unp1) ->
+    (* x1 is supposed to be a list *)
+    let res_list2 = p2 corr1 x1 in
+    (* We want the result of p2 with the remained of p1! *)
+    List.fold_left (fun res_list (x2, corr2, _unp2) ->
+      (* Notice that we do not care about unp2: if the user want to
+         make sure that p2 parses all of x then if must make p2 checks this. *)
+      (x2, corr2, unp1)::res_list)
+      res_list res_list2)
+    [] res_list1
+----
+
+== Miscellaneous
+
+=== BoundedSet
+
+We still have to provide an implementation for our set of fixed maximum size.
+The simplest implementation is that of a list with a current size:
+
+.BoundedSet: type
+[source,ml]
+----
+type 'a t =
+  { size : int ;
+    max_size : int ;
+    items : 'a list }
+----
+
+With the trivial constructor:
+
+.BoundedSet: constructor
+[source,ml]
+----
+let make max_size =
+  { size = 0 ; max_size ; items = [] }
+----
+
+And the only two operations we've met so far:
+
+.BoundedSet: operations
+[source,ml]
+----
+let is_full t = t.size >= t.max_size
+
+let add t x =
+  { t with size = t.size + 1 ;
+           items = x::t.items }
+----
+

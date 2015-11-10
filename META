@@ -1,5 +1,5 @@
 description = "Dead simple combinatoric parser"
 version = "1"
-requires = "batteries"
-archive(byte) = "parsercombinator.cma"
-archive(native) = "parsercombinator.cmxa"
+requires = "batteries ounit"
+archive(byte) = "parserCombinator.cma"
+archive(native) = "parserCombinator.cmxa"

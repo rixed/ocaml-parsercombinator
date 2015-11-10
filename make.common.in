@@ -13,7 +13,10 @@ CAMLINCLUDE = $(shell @OCAMLFIND@ printconf stdlib)
 override CPPFLAGS      += -I $(CAMLINCLUDE) -I $(top_srcdir) -D_GNU_SOURCE
 override CFLAGS        += -O2 -std=c99 -W -Wall
 
-.PHONY: opt clean clean-spec install uninstall reinstall doc clear dep dep-spec
+top_build_prefix = @top_build_prefix@
+top_builddir = @top_builddir@
+
+.PHONY: opt clean clean-spec install uninstall reinstall clear dep dep-spec
 
 SOURCES_ML = $(filter %.ml, $(SOURCES))
 SOURCES_MLI = $(filter %.mli, $(SOURCES))
@@ -23,17 +26,22 @@ ifdef PKG_NAME
 ARCHIVE  = $(PKG_NAME).cma
 XARCHIVE = $(ARCHIVE:.cma=.cmxa)
 CLIBNAME = $(PKG_NAME)
+ifdef C_SOURCES
 CLIB     = lib$(CLIBNAME).a
 $(CLIB): $(C_SOURCES:.c=.o)
-	$(AR) rcs $@ $^
+	$(AR) -r -c -s $@ $^
+else
+CLIB =
+endif
 $(ARCHIVE): $(SOURCES_MLI:.mli=.cmi) $(OBJECTS) $(CLIB)
 	$(OCAMLC)   -a -o $@ $(SYNTAX) -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $(OBJECTS) -cclib -l$(CLIBNAME) $(LIBS)
 $(XARCHIVE): $(SOURCES_MLI:.mli=.cmi) $(XOBJECTS) $(CLIB)
 	$(OCAMLOPT) -a -o $@ $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $(XOBJECTS) -cclib -l$(CLIBNAME) $(LIBS)
-install: $(ARCHIVE) $(XARCHIVE)
+install: $(ARCHIVE) $(XARCHIVE) install-spec
 	if test -f "$(XARCHIVE)" ; then extra="$(XARCHIVE) "`basename "$(XARCHIVE)" .cmxa`.a ; fi ; \
 	@OCAMLFIND@ install "$(PKG_NAME)" *.cmi "$(ARCHIVE)" META $(CLIB) $$extra
-uninstall:
+
+uninstall: uninstall-spec
 	@OCAMLFIND@ remove $(PKG_NAME)
 reinstall: uninstall install
 endif
@@ -44,10 +52,10 @@ endif
 EXTRALIBS =
 
 .cmo.byte: $(ARCHIVE)
-	$(OCAMLC)   -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) $(ARCHIVE) -linkpkg $(OCAMLFLAGS) $(EXTRALIBS) $^
+	$(OCAMLC)   -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) -ccopt -L@prefix@/lib $(ARCHIVE) $(EXTRALIBS) -linkpkg $(OCAMLFLAGS) $^
 
 .cmx.opt: $(XARCHIVE)
-	$(OCAMLOPT) -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) $(XARCHIVE) -linkpkg $(OCAMLOPTFLAGS) $(EXTRALIBS:.cma=.cmxa) $^
+	$(OCAMLOPT) -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) -ccopt -L@prefix@/lib $(XARCHIVE) $(EXTRALIBS:.cma=.cmxa) -linkpkg $(OCAMLOPTFLAGS) $^
 
 .ml.cmo:
 	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
@@ -72,20 +80,20 @@ EXTRALIBS =
 
 # Tests with qtest
 
-all_tests.byte: all_tests.cmo $(ARCHIVE)
-	$(OCAMLC)   -o $@ $(SYNTAX) -package "$(REQUIRES) QTest2Lib" -ccopt -L$(top_srcdir) $(ARCHIVE) $(EXTRALIBS) -linkpkg $(OCAMLFLAGS) $<
+all_tests.byte: all_tests.cmo $(ARCHIVE) $(EXTRA_SOURCES:.ml=.cmo)
+	$(OCAMLC)   -o $@ $(SYNTAX) -package "$(REQUIRES) $(EXTRA_REQUIRES) QTest2Lib" -ccopt -L$(top_srcdir) $(ARCHIVE) $(EXTRA_SOURCES:.ml=.cmo) $(EXTRALIBS) -linkpkg $(OCAMLFLAGS) $<
 
 all_tests.cmo: all_tests.ml $(SOURCES_MLI:.mli=.cmi) $(OBJECTS)
-	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES) QTest2Lib" $(OCAMLFLAGS) -c -impl $<
+	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES) $(EXTRA_REQUIRES) QTest2Lib" $(OCAMLFLAGS) -c -impl $<
 
-all_tests.opt: all_tests.cmx $(XARCHIVE)
-	$(OCAMLOPT) -o $@ $(SYNTAX) -package "$(REQUIRES) QTest2Lib" -ccopt -L$(top_srcdir) $(XARCHIVE) $(EXTRALIBS:.cma=.cmxa) -linkpkg $(OCAMLOPTFLAGS) $<
+all_tests.opt: all_tests.cmx $(XARCHIVE) $(EXTRA_SOURCES:.ml=.cmx)
+	$(OCAMLOPT) -o $@ $(SYNTAX) -package "$(REQUIRES) $(EXTRA_REQUIRES) QTest2Lib" -ccopt -L$(top_srcdir) $(XARCHIVE) $(EXTRA_SOURCES:.ml=.cmx) $(EXTRALIBS:.cma=.cmxa) -linkpkg $(OCAMLOPTFLAGS) $<
 
 all_tests.cmx: all_tests.ml $(SOURCES_MLI:.mli=.cmi) $(XOBJECTS)
-	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES) QTest2Lib" $(OCAMLOPTFLAGS) -c -impl $<
+	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES) $(EXTRA_REQUIRES) QTest2Lib" $(OCAMLOPTFLAGS) -c -impl $<
 
-all_tests.ml: $(SOURCES)
-	$(QTEST) --preamble 'open Batteries;;' -o $@ extract $^
+all_tests.ml: $(SOURCES_ML) $(EXTRA_SOURCES)
+	$(QTEST) --preamble 'open Batteries' -o $@ extract $^
 
 check: all_tests.opt check-spec
 	@echo "Running inline tests"
@@ -105,10 +113,6 @@ endif
 dep: dep-spec
 	@rm -f .depend
 	$(MAKE) .depend
-
-doc: $(SOURCES)
-	mkdir -p $@
-	$(OCAMLDOC) $(SYNTAX) -package "$(REQUIRES)" -d $(DOCDIR) $^
 
 clear:
 	sed -i -e 's/[ 	]\+$$//' $(wildcard *.ml *.mli *.c *.scm)
