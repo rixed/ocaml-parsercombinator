@@ -3,7 +3,7 @@ top_srcdir = @top_srcdir@
 PKG_NAME = parsercombinator
 
 # First extract the code from README
-GEN_SOURCES = BoundedSet.ml Corrections.ml Parsers.ml Combinators.ml
+GEN_SOURCES = BoundedSet.ml Corrections.ml Parsers.ml Combinators.ml test.ml
 GEN_FILES = $(GEN_SOURCES) README.html
 
 SOURCES = $(GEN_SOURCES)
@@ -16,8 +16,7 @@ EXTRA_REQUIRES = portia
 
 EXAMPLES_BYTE =
 
-REQUIRES = batteries
-
+REQUIRES = batteries ounit
 
 EXAMPLES_BYTE =
 EXAMPLES_OPT = $(EXAMPLES_BYTE:.byte=.opt)
@@ -28,16 +27,13 @@ SYNTAX =
 .PHONY: all loc doc check-spec clean-spec dep-spec
 all: $(XARCHIVE) examples README.html
 
-debug:
-	echo 'firstword=' $((firstword $GEN_SOURCES):.ml=.annot)
-
 # Do not depend on $(GEN_SOURCES:.ml=.cmo) so that we get the .annot file
 # even when some file does not compile.
 $((firstword $GEN_SOURCES):.ml=.annot):
 	cat $(GEN_SOURCES:.ml=.annot) > $@
 
 $(GEN_SOURCES): README.adoc
-	ocamlfind portia/portia -libdir "$$(ocamlfind query portia)" -syntax asciidoc -syntax ocaml $<
+	ocamlfind portia/portia -ignore-missing -libdir "$$(ocamlfind query portia)" -syntax asciidoc -syntax ocaml $<
 
 include $(top_srcdir)/make.common
 

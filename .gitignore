@@ -14,7 +14,7 @@
 *.db
 *.cgi
 *.log
-all_tests.ml
+test.ml
 conf-check.old
 /Makefile
 /make.common
@@ -27,3 +27,4 @@ Combinators.ml
 Corrections.ml
 Parsers.ml
 README.html
+oUnit-tests*

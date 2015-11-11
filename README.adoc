@@ -248,7 +248,51 @@ need to get this feature from such a tool as
 https://github.com/vincent-hugot/iTeML[qtest] and will use
 http://ounit.forge.ocamlcore.org/api-ounit/index.html[oUnit] directly.
 
-TODO
+.test: The boilerplate
+[source,ml]
+----
+open OUnit2
+
+let input_of_string s =
+  let rec loop n =
+    if n < 0 then [] else
+    (s.[n], n) :: loop (n-1) in
+  loop (String.length s - 1)
+
+let corr = BoundedSet.make 5
+let unp = input_of_string "glop glop pas glop"
+
+let uniq = function
+  | [x, _, _] -> Some x
+  | _ -> None
+
+let test_suite =
+  "tests" >:::
+    [ (* ...tests... *) ]
+
+let () =
+  run_test_tt_main test_suite
+----
+
+That we can test with simple tests for +return+ and +fail+ (which really
+does not cause too much worries):
+
+.tests
+[source,ml]
+----
+"return succeed" >:: (
+  fun _ctx -> assert_equal (Some 42) (uniq (Parsers.return 42 corr unp))
+) ;
+"return succeed even at EOF" >:: (
+  fun _ctx -> assert_equal (Some 42) (uniq (Parsers.return 42 corr []))
+) ;
+"fail fails" >:: (
+  fun _ctx -> assert_equal [] (Parsers.fail corr unp)
+) ;
+"fail fails even at EOF" >:: (
+  fun _ctx -> assert_equal [] (Parsers.fail corr [])
+) ;
+----
 
 === First non trivial parser
 

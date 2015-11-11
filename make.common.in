@@ -4,7 +4,6 @@ OCAMLOPT   = @OCAMLFIND@ ocamlopt
 OCAMLDEP   = @OCAMLFIND@ ocamldep
 OCAMLDOC   = @OCAMLFIND@ ocamldoc -html -colorize-code -all-params
 OCAMLMKTOP = @OCAMLFIND@ ocamlmktop -g
-QTEST      = qtest
 DOCDIR    ?= doc/
 WARNS      = Ael-31-41-44-45
 override OCAMLOPTFLAGS += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir) -inline 9 -S
@@ -16,7 +15,7 @@ override CFLAGS        += -O2 -std=c99 -W -Wall
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 
-.PHONY: opt clean clean-spec install uninstall reinstall clear dep dep-spec
+.PHONY: opt clean clean-spec install uninstall reinstall clear dep dep-spec check inline-tests unit-tests
 
 SOURCES_ML = $(filter %.ml, $(SOURCES))
 SOURCES_MLI = $(filter %.mli, $(SOURCES))
@@ -25,21 +24,14 @@ XOBJECTS = $(OBJECTS:.cmo=.cmx)
 ifdef PKG_NAME
 ARCHIVE  = $(PKG_NAME).cma
 XARCHIVE = $(ARCHIVE:.cma=.cmxa)
-CLIBNAME = $(PKG_NAME)
-ifdef C_SOURCES
-CLIB     = lib$(CLIBNAME).a
-$(CLIB): $(C_SOURCES:.c=.o)
-	$(AR) -r -c -s $@ $^
-else
-CLIB =
-endif
-$(ARCHIVE): $(SOURCES_MLI:.mli=.cmi) $(OBJECTS) $(CLIB)
-	$(OCAMLC)   -a -o $@ $(SYNTAX) -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $(OBJECTS) -cclib -l$(CLIBNAME) $(LIBS)
-$(XARCHIVE): $(SOURCES_MLI:.mli=.cmi) $(XOBJECTS) $(CLIB)
-	$(OCAMLOPT) -a -o $@ $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $(XOBJECTS) -cclib -l$(CLIBNAME) $(LIBS)
+
+$(ARCHIVE): $(SOURCES_MLI:.mli=.cmi) $(OBJECTS)
+	$(OCAMLC)   -a -o $@ $(SYNTAX) -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $(OBJECTS) $(LIBS)
+$(XARCHIVE): $(SOURCES_MLI:.mli=.cmi) $(XOBJECTS)
+	$(OCAMLOPT) -a -o $@ $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $(XOBJECTS) $(LIBS)
 install: $(ARCHIVE) $(XARCHIVE) install-spec
 	if test -f "$(XARCHIVE)" ; then extra="$(XARCHIVE) "`basename "$(XARCHIVE)" .cmxa`.a ; fi ; \
-	@OCAMLFIND@ install "$(PKG_NAME)" *.cmi "$(ARCHIVE)" META $(CLIB) $$extra
+	@OCAMLFIND@ install "$(PKG_NAME)" *.cmi "$(ARCHIVE)" META $$extra
 
 uninstall: uninstall-spec
 	@OCAMLFIND@ remove $(PKG_NAME)
@@ -52,10 +44,11 @@ endif
 EXTRALIBS =
 
 .cmo.byte: $(ARCHIVE)
-	$(OCAMLC)   -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) -ccopt -L@prefix@/lib $(ARCHIVE) $(EXTRALIBS) -linkpkg $(OCAMLFLAGS) $^
+	$(OCAMLC)   -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) $(ARCHIVE) $(EXTRALIBS) -linkpkg $(OCAMLFLAGS) $^
 
+test.opt: $(XARCHIVE) # Dependancy on next line aparently does nothing?
 .cmx.opt: $(XARCHIVE)
-	$(OCAMLOPT) -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) -ccopt -L@prefix@/lib $(XARCHIVE) $(EXTRALIBS:.cma=.cmxa) -linkpkg $(OCAMLOPTFLAGS) $^
+	$(OCAMLOPT) -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) $(XARCHIVE) $(EXTRALIBS:.cma=.cmxa) -linkpkg $(OCAMLOPTFLAGS) $^
 
 .ml.cmo:
 	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
@@ -78,30 +71,14 @@ EXTRALIBS =
 .mly.mli:
 	$(OCAMLYACC) $<
 
-# Tests with qtest
-
-all_tests.byte: all_tests.cmo $(ARCHIVE) $(EXTRA_SOURCES:.ml=.cmo)
-	$(OCAMLC)   -o $@ $(SYNTAX) -package "$(REQUIRES) $(EXTRA_REQUIRES) QTest2Lib" -ccopt -L$(top_srcdir) $(ARCHIVE) $(EXTRA_SOURCES:.ml=.cmo) $(EXTRALIBS) -linkpkg $(OCAMLFLAGS) $<
-
-all_tests.cmo: all_tests.ml $(SOURCES_MLI:.mli=.cmi) $(OBJECTS)
-	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES) $(EXTRA_REQUIRES) QTest2Lib" $(OCAMLFLAGS) -c -impl $<
-
-all_tests.opt: all_tests.cmx $(XARCHIVE) $(EXTRA_SOURCES:.ml=.cmx)
-	$(OCAMLOPT) -o $@ $(SYNTAX) -package "$(REQUIRES) $(EXTRA_REQUIRES) QTest2Lib" -ccopt -L$(top_srcdir) $(XARCHIVE) $(EXTRA_SOURCES:.ml=.cmx) $(EXTRALIBS:.cma=.cmxa) -linkpkg $(OCAMLOPTFLAGS) $<
-
-all_tests.cmx: all_tests.ml $(SOURCES_MLI:.mli=.cmi) $(XOBJECTS)
-	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES) $(EXTRA_REQUIRES) QTest2Lib" $(OCAMLOPTFLAGS) -c -impl $<
-
-all_tests.ml: $(SOURCES_ML) $(EXTRA_SOURCES)
-	$(QTEST) --preamble 'open Batteries' -o $@ extract $^
-
-check: all_tests.opt check-spec
-	@echo "Running inline tests"
-	@./$< --shuffle
+unit-tests: test.opt
+	@echo "Running other unit tests"
+	@./test.opt
+check: inline-tests unit-tests check-spec
 
 # Clean up
 clean: clean-spec
-	rm -f *.cm[ioxa] *.cmxa *.cmxs *.a *.s *.o *.byte *.opt .depend *.annot all_tests.*
+	rm -f *.cm[ioxa] *.cmxa *.cmxs *.a *.s *.o *.byte *.opt .depend *.annot
 
 # Dependencies
 .depend:
