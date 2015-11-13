@@ -81,11 +81,8 @@ clean: clean-spec
 	rm -f *.cm[ioxa] *.cmxa *.cmxs *.a *.s *.o *.byte *.opt .depend *.annot
 
 # Dependencies
-.depend:
+.depend: $(SOURCES)
 	$(OCAMLDEP) $(SYNTAX) -package "$(REQUIRES)" $(SOURCES_ML) $(SOURCES_MLI) > $@
-ifdef C_SOURCES
-	$(CC) -M $(CPPFLAGS) $(C_SOURCES) >> $@
-endif
 
 dep: dep-spec
 	@rm -f .depend

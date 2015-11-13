@@ -22,24 +22,37 @@ http://rixed.github.io/portia/notations.html[this document].
 
 == Requirements
 
-=== Parser Combinators
+=== Parsing perl as deep as possible without executing it
 
-Input text syntax does not bind to any rigid formal rule (we'd like to parse
-perl without executing it). Parser combinators are appealing
-because they make it possible to add new valid constructs without rethinking
-the whole grammar.
+This is our ultimate objective, that drives all of the following requirements.
+
+=== Parsing recursively
+
+Perl has +eval+ on strings. Therefore we do not want to stop parsing a soon as
+we reach a string literal if it's (or could be) passed to the +eval+ function.
+
+=== Parsing with gaps
+
+For the same reason, we want to be able to parse as much as possible of a code
+string even if we are missing some part of it.
+
+=== Best effort
+
+It will not always be possible to know for sure the type of all symbols. In
+that case we want to present all possible alternatives as the result, rather
+than stopping the parse or selecting the most probable one.
 
 === Error detection?
 
-We want this parser to parse text that is already valid in order to analyze
-it. Only in a very limited number of cases will the input be invalid.
+The code that will be sent to this parser will already be valid most of the time..
 Therefore, the error reporting need not detect typos or other user error.
 Essentially, we need error reports merely to debug the parser itself. So error
 reports must _only_ include the (best) partial result(s) and why they failed.
 
-It is very unfortunate though that even in those favorable circumstances detecting
-what is the best attempt in order to explain why this one failed requires the
-same expensive error detection techniques that to detect user typos.
+It is very unfortunate though that even in those favorable circumstances
+detecting what is the best attempt in order to explain why this one failed
+seems to require the same expensive error detection techniques that to detect
+user typos.
 
 Indeed, the only way to detect the best attempt is: should this parser had
 behaved differently then the whole outcome would have been very different. In
@@ -52,6 +65,13 @@ it sounds, beyond constraining the exploratory search within an 'error budget'.
 Many of those ideas come from
 http://www.staff.science.uu.nl/~swier101/Papers/1999/SofSem99.pdf[Fast, Error
 Correcting Parser Combinators: A Short Tutorial], a XX^th^ century paper.
+
+=== Parser Combinators
+
+Perl does not bow to any rigid formal rule. Parser combinators are appealing
+because they make it possible to add new valid constructs without rethinking
+the whole grammar.  In addition, they make significantly easier to achieve the
+previous objectives.
 
 == The type of the parser
 
@@ -169,10 +189,11 @@ encounter the few required functions.
 
 Trivially, to add an error at position +pos+ to the correction list, with
 message +msg+:
+
 .Corrections: recording a change
 [source,ml]
 ----
-let change_at pos msg corr =
+let change_at corr pos msg =
   BoundedSet.add corr (pos, msg)
 ----
 
@@ -180,7 +201,7 @@ Now that we know what corrections look like and that we have to read the
 positions alongside the tokens from the input stream, we can finally write the 
 definitive parser type:
 
-.Parsers: final type`
+.Parsers: final type
 [source,ml]
 ----
 type ('a, 'b, 'c) result = 'b * ('c Corrections.t) * ('a * 'c) list
@@ -198,36 +219,28 @@ with those:
 
 == Base parsers (to be combined)
 
-=== Fail, Return and Check
+=== Fail, Return and check.
 
 The simplest parsers that does nothing are +return+ and +fail+. They do not
 consume anything from the input but merely return a single result or no result
 at all. Given our parser type, here are their implementations:
 
-.Parsers: fail and return
+.Parsers: fail
 [source,ml]
 ----
 let fail _corr _unp = []
-let return x corr unp = [x, corr, unp]
 ----
 
-Another parser that does not consume any input is the +check+ parser that we
-have mentioned earlier. It is actually a combinator since it takes another
-parser as parameter. It checks that the given parser succeed but then return
-the input stream unchanged (with a +unit+ result). The only thing interesting
-is that it explores forcing a success in case the check fails.
-
-.Parsers: check
+.Parsers: fail with success exploration
 [source,ml]
 ----
+open Batteries
 open Corrections
 
-let check p msg corr unp =
-  match p corr unp with
-  | [] ->
-    if BoundedSet.is_full corr then []
-    else [(), change_at (next_position unp) msg corr, unp]
-  | _ -> [(), corr, unp]
+let fail_or_maybe_not msg x corr ?pos rest =
+  let pos = Option.default_delayed (fun () -> next_position rest) pos in
+  if BoundedSet.is_full corr then []  (* no more errors permitted so fail for real *)
+  else [x, change_at corr pos msg, rest]
 ----
 
 with:
@@ -240,6 +253,27 @@ let next_position = function
   | (_tok, pos)::_ -> Coord pos
 ----
 
+.Parsers: return
+[source,ml]
+----
+let return x corr rest = [x, corr, rest]
+----
+
+Another parser that does not consume any input is the +check+ parser that we
+have mentioned earlier. It is actually a combinator since it takes another
+parser as parameter. It checks that the given parser succeed but then return
+the input stream unchanged (with a +unit+ result). The only thing interesting
+is that it explores forcing a success in case the check fails.
+
+.Parsers: check
+[source,ml]
+----
+let check p msg corr rest =
+  match p corr rest with
+  | [] -> fail_or_maybe_not msg () corr rest
+  | _ -> [(), corr, rest]
+----
+
 === Tests
 
 It's is important to have a test infrastructure in place before it's needed.
@@ -248,23 +282,44 @@ need to get this feature from such a tool as
 https://github.com/vincent-hugot/iTeML[qtest] and will use
 http://ounit.forge.ocamlcore.org/api-ounit/index.html[oUnit] directly.
 
-.test: The boilerplate
+Supposing for now that we have all the required printers we can set up a
+satisfying environment for tests:
+
+.test: The stage.
 [source,ml]
 ----
+open Batteries
 open OUnit2
+open Corrections
+open Parsers
 
 let input_of_string s =
-  let rec loop n =
-    if n < 0 then [] else
-    (s.[n], n) :: loop (n-1) in
-  loop (String.length s - 1)
+  let rec loop n tl =
+    if n < 0 then tl else
+    loop (n-1) ((s.[n], n) :: tl) in
+  loop (String.length s - 1) []
 
-let corr = BoundedSet.make 5
-let unp = input_of_string "glop glop pas glop"
+let max_changes = 3
+let corr = BoundedSet.make max_changes
+let correction_at pos msg =
+  let corr = BoundedSet.make max_changes in
+  change_at corr pos msg
+
+let no_corr = BoundedSet.make 0
+let rest = input_of_string "glop glop pas glop"
+let no_input = []
 
 let uniq = function
   | [x, _, _] -> Some x
   | _ -> None
+
+(* version of assert_equal specialized for parser results *)
+let assert_same_results ?msg print_output exp actual =
+  let print_input = Char.print in
+  let print_coord fmt c = Printf.fprintf fmt "offset %d" c in
+  let result_printer = print_result print_input print_coord print_output in
+  let results_printer = List.print result_printer in
+  assert_equal ~printer:(IO.to_string results_printer) ?msg exp actual
 
 let test_suite =
   "tests" >:::
@@ -281,16 +336,83 @@ does not cause too much worries):
 [source,ml]
 ----
 "return succeed" >:: (
-  fun _ctx -> assert_equal (Some 42) (uniq (Parsers.return 42 corr unp))
+  fun _ctx ->
+    assert_same_results Int.print
+      [42, no_corr, rest]
+      (return 42 no_corr rest)
 ) ;
 "return succeed even at EOF" >:: (
-  fun _ctx -> assert_equal (Some 42) (uniq (Parsers.return 42 corr []))
+  fun _ctx ->
+    assert_same_results Int.print
+      [42, no_corr, []]
+      (return 42 no_corr no_input)
 ) ;
 "fail fails" >:: (
-  fun _ctx -> assert_equal [] (Parsers.fail corr unp)
+  fun _ctx ->
+    assert_same_results Int.print
+      []
+      (fail no_corr rest)
 ) ;
 "fail fails even at EOF" >:: (
-  fun _ctx -> assert_equal [] (Parsers.fail corr [])
+  fun _ctx ->
+    assert_same_results Int.print
+      []
+      (fail no_corr no_input)
+) ;
+----
+
+=== Testing for end of stream
+
+Another very useful and basic parser is the one that succeeds on EOF and fails
+everywhere else. It is useful to check that the input stream have been consumed
+entirely by the preceding parsers).
+
+We may not want tp engage in error detection in this parser: mimicking success
+imply pretending the stream stops there, but most input streams could be
+trivially declared valid if the stream is cut short (empty string is often
+valid for instance). In case of spurious input tokens at the end the error
+message shouldn't the error message be trivial enough already? That's
+forgetting that we are going to combine parsers, and ``end of stream'' does not
+necessarily mean ``end of outer input stream''. It could for instance means the
+``end of lines'' in a message header or the ``end of initializers'' in an
+initializer list.
+
+We will therefore explore forcing the success of this parser, which implies
+cutting the unparsed stream when mimicking success:
+
+.Parsers: checking for EOF
+[source,ml]
+----
+let eof msg corr = function
+  | [] -> return () corr []
+  | _ as rest -> fail_or_maybe_not ("spurious "^msg) () corr ~pos:(next_position rest) [] (* <1> *)
+----
+
+<1>: Here we will restart with +rest = []+. That's the only case when forcing
+success also alters the input stream.
+
+And the accompanying test:
+
+.tests
+[source,ml]
+----
+"eof succeed" >:: (
+  fun _ctx ->
+    assert_same_results Unit.print
+      [(), no_corr, []]
+      (eof "char" no_corr no_input)
+) ;
+"eof fails" >:: (
+  fun _ctx ->
+    assert_same_results Unit.print
+      []
+      (eof "char" no_corr rest)
+) ;
+"eof suggests truncation" >:: (
+  fun _ctx ->
+    assert_same_results Unit.print
+      [(), correction_at (Coord 0) "spurious char", []]
+      (eof "char" corr rest)
 ) ;
 ----
 
@@ -309,14 +431,14 @@ Now that we know the type, writing the code is rather easy:
 .Parsers: the cond parser
 [source,ml]
 ----
-let cond msg f x corr unp =
-  let res, chg = (match unp with
+let cond msg f x corr rest =
+  let res, chg = (match rest with
   | [] ->
-    [], [x (* <1> *), change_at EOF msg corr, unp]
-  | (tok, _pos)::unp' when f tok ->
-    [tok, corr, unp'], []
-  | (tok, pos)::unp' ->
-    [], [tok, change_at (Coord pos) msg corr, unp']) in
+    [], [x (* <1> *), change_at corr EOF msg, rest]
+  | (tok, _pos)::rest' when f tok ->
+    [tok, corr, rest'], []
+  | (tok, pos)::rest' ->
+    [], [tok, change_at corr (Coord pos) msg, rest']) in
   if BoundedSet.is_full corr || chg = [] then res
   else List.rev_append res chg
 ----
@@ -353,8 +475,8 @@ succeeding when they fail.
 .Combinators: binding two parsers
 [source,ml]
 ----
-let bind p1 p2 corr unp =
-  match p1 corr unp with
+let bind p1 p2 corr rest =
+  match p1 corr rest with
   | [] -> [] (* if p1 fails there is no need to try p2 *)
   | res_list1 -> (* for each possible result, try to continue parsing with p2 *)
     List.fold_left (fun res_list' (x1, corr1, unp1) ->
@@ -373,9 +495,9 @@ The second most useful combinator is the alternative:
 .Combinators: alternative
 [source,ml]
 ----
-let either p1 p2 corr unp =
-  let res_list1 = p1 corr unp in
-  let res_list2 = p2 corr unp in
+let either p1 p2 corr rest =
+  let res_list1 = p1 corr rest in
+  let res_list2 = p2 corr rest in
   List.rev_append res_list1 res_list2
 ----
 
@@ -388,8 +510,8 @@ which are then feed into another parser input:
 .Combinators: pipe
 [source,ml]
 ----
-let pipe p1 p2 corr unp =
-  let res_list1 = p1 corr unp in
+let pipe p1 p2 corr rest =
+  let res_list1 = p1 corr rest in
   List.fold_left (fun res_list (x1, corr1, unp1) ->
     (* x1 is supposed to be a list *)
     let res_list2 = p2 corr1 x1 in
@@ -438,4 +560,54 @@ let add t x =
   { t with size = t.size + 1 ;
            items = x::t.items }
 ----
+
+=== Printers
+
+If there is something annoying about OCaml it's the lack of default printers
+for types. +Batteries+ provides +dump+ but it is oblivious to constructors so
+the result is not pretty. So let's write our own.
+
+It would be best to provide formatters instead of mere printers to benefit from
+automatic typesetting but unfortunately +Batteries+ support for those is
+minimal so it's better to forget about formatters to cut down on typing.
+
+.BoundedSet: printer
+[source,ml]
+----
+open Batteries
+
+let print print_value fmt t =
+  List.print print_value fmt t.items
+----
+
+.Corrections: printers
+[source,ml]
+----
+open Batteries
+
+let print_position print_coord fmt = function
+  | EOF -> String.print fmt "end of input"
+  | Coord c -> print_coord fmt c
+
+let print_correction print_coord fmt (pos, msg) =
+  Printf.fprintf fmt "%s at %a"
+    msg
+    (print_position print_coord) pos
+
+let print_corrections print_coord fmt corr =
+  BoundedSet.print (print_correction print_coord) fmt corr
+----
+
+.Parsers: printers
+[source,ml]
+----
+open Batteries
+
+let print_result print_input print_coord print_output fmt (x, corr, rest) =
+  Printf.fprintf fmt "(output=%a,corr=%a,rest=%a)"
+    print_output x
+    (print_corrections print_coord) corr
+    (List.print (fun fmt (tok, _pos) -> print_input fmt tok)) rest
+----
+
 

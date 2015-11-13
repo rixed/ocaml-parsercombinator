@@ -29,7 +29,7 @@ all: $(XARCHIVE) examples README.html
 
 # Do not depend on $(GEN_SOURCES:.ml=.cmo) so that we get the .annot file
 # even when some file does not compile.
-$((firstword $GEN_SOURCES):.ml=.annot):
+README.annot: $(GEN_SOURCES:.ml=.annot)
 	cat $(GEN_SOURCES:.ml=.annot) > $@
 
 $(GEN_SOURCES): README.adoc
