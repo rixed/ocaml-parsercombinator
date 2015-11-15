@@ -231,6 +231,17 @@ at all. Given our parser type, here are their implementations:
 let fail _corr _unp = []
 ----
 
+.Parsers: return
+[source,ml]
+----
+let return x corr rest = [x, corr, rest]
+----
+
+Those two first parsers perform no type of error detection at all.  But many
+other parsers will have to either terminate parsing abruptly (with +fail+) or
+add a change to the correction list and proceed, if the error budget is not
+exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
+
 .Parsers: fail with success exploration
 [source,ml]
 ----
@@ -253,12 +264,6 @@ let next_position = function
   | (_tok, pos)::_ -> Coord pos
 ----
 
-.Parsers: return
-[source,ml]
-----
-let return x corr rest = [x, corr, rest]
-----
-
 Another parser that does not consume any input is the +check+ parser that we
 have mentioned earlier. It is actually a combinator since it takes another
 parser as parameter. It checks that the given parser succeed but then return
@@ -268,11 +273,25 @@ is that it explores forcing a success in case the check fails.
 .Parsers: check
 [source,ml]
 ----
-let check p msg corr rest =
+let check msg p corr rest =
   match p corr rest with
   | [] -> fail_or_maybe_not msg () corr rest
   | _ -> [(), corr, rest]
 ----
+
+Another parser that will prove useful (despite contributing no value to the
+result) especially in coordination with +check+ is the negation:
+
+.Parsers: negation
+[source,ml]
+----
+let not p corr rest =
+  match p corr rest with
+  | [] -> return () corr rest
+  | _ -> fail_or_maybe_not "not" () corr rest
+----
+
+So that we could write +check msg (not p)+.
 
 === Tests
 
@@ -293,10 +312,10 @@ open OUnit2
 open Corrections
 open Parsers
 
-let input_of_string s =
+let input_of_string ?(offset=0) s =
   let rec loop n tl =
     if n < 0 then tl else
-    loop (n-1) ((s.[n], n) :: tl) in
+    loop (n-1) ((s.[n], n + offset) :: tl) in
   loop (String.length s - 1) []
 
 let max_changes = 3
@@ -319,7 +338,10 @@ let assert_same_results ?msg print_output exp actual =
   let print_coord fmt c = Printf.fprintf fmt "offset %d" c in
   let result_printer = print_result print_input print_coord print_output in
   let results_printer = List.print result_printer in
-  assert_equal ~printer:(IO.to_string results_printer) ?msg exp actual
+  (* OUnit really should have a assert_same_elements *)
+  assert_equal ~printer:(IO.to_string results_printer) ?msg
+    (exp |> List.sort compare)
+    (actual |> List.sort compare)
 
 let test_suite =
   "tests" >:::
@@ -361,7 +383,7 @@ does not cause too much worries):
 ) ;
 ----
 
-=== Testing for end of stream
+=== Checking for end of stream
 
 Another very useful and basic parser is the one that succeeds on EOF and fails
 everywhere else. It is useful to check that the input stream have been consumed
@@ -385,7 +407,10 @@ cutting the unparsed stream when mimicking success:
 ----
 let eof msg corr = function
   | [] -> return () corr []
-  | _ as rest -> fail_or_maybe_not ("spurious "^msg) () corr ~pos:(next_position rest) [] (* <1> *)
+  | _ as rest ->
+    fail_or_maybe_not
+      ("spurious "^msg) () corr
+      ~pos:(next_position rest) [] (* <1> *)
 ----
 
 <1>: Here we will restart with +rest = []+. That's the only case when forcing
@@ -437,8 +462,8 @@ let cond msg f x corr rest =
     [], [x (* <1> *), change_at corr EOF msg, rest]
   | (tok, _pos)::rest' when f tok ->
     [tok, corr, rest'], []
-  | (tok, pos)::rest' ->
-    [], [tok, change_at corr (Coord pos) msg, rest']) in
+  | (_tok, pos)::rest' ->
+    [], [x, change_at corr (Coord pos) msg, rest']) in
   if BoundedSet.is_full corr || chg = [] then res
   else List.rev_append res chg
 ----
@@ -458,9 +483,60 @@ It is possible to build many simpler and more convenient parsers on top of
 .Parsers: the item parser
 [source,ml]
 ----
-let item ?(msg="some item") x =
-  cond msg ((=) x) x
+let item ?(what="item") x =
+  cond ("missing "^what) ((=) x) x
 ----
+
+.tests
+[source,ml]
+----
+"item canonical success" >:: (
+  fun _ctx ->
+    assert_same_results Char.print
+      ['g', no_corr, List.tl rest]
+      (item 'g' no_corr rest)
+) ;
+"item canonical failure" >:: (
+  fun _ctx ->
+    assert_same_results Char.print
+      []
+      (item 'X' no_corr rest)
+) ;
+"item fails at EOF" >:: (
+  fun _ctx ->
+    assert_same_results Char.print
+      []
+      (item 'g' no_corr no_input)
+) ;
+"item error exploration" >:: (
+  fun _ctx ->
+    assert_same_results Char.print
+      ['X', correction_at (Coord 0) "missing item", List.tl rest]
+      (item 'X' corr rest)
+) ;
+----
+
+== Modifying parsers result
+
+Before going too far we need to introduce functions to alter a parser result (equivalent of map, fold, filter...) and come up with a convenient syntax for those since they are going to be used prevalently.
+
+.Parsers: applying a function to all results of a parser
+[source,ml]
+----
+let map p f corr rest =
+  p corr rest |>
+  List.map (fun (x, corr, rest) -> f x, corr, rest)
+----
+
+The order of parameters is important so that +map p f+ is itself a parser.
+An infix operator makes it even more convenient:
+
+.Parsers: infix operator for map
+[source,ml]
+----
+let (>>:) = map
+----
+
 
 == Combinators
 
@@ -472,7 +548,7 @@ Notice that since we are now merely combining parsers we do not have to care
 about error correction any more: only the base parsers need to pretend
 succeeding when they fail.
 
-.Combinators: binding two parsers
+.Parsers: binding two parsers
 [source,ml]
 ----
 let bind p1 p2 corr rest =
@@ -490,24 +566,103 @@ let bind p1 p2 corr rest =
       [] res_list1
 ----
 
-The second most useful combinator is the alternative:
+This parser being used to connect successive parsers we'd rather have a shorter infix alternative for +bind+:
 
-.Combinators: alternative
+.Parsers: infix operator for bind
 [source,ml]
 ----
-let either p1 p2 corr rest =
+let (++) p1 p2 = bind p1 p2
+----
+
+Also, we will often discard the result of one parser. For instance when parsing
+delimiters the only information is that the parser succeeds (there is a
+delimiter) but there is no value to attach to that success. Also when using
+the +check+ parser, which purpose is really not its return value. So here are
+three variants of bind: one that ignores the result of +p1+, one that ignores
+the result of +p2+, and one that ignore both (returning +()+):
+
+.Parsers: other convenient infix operators
+[source,ml]
+----
+let (+-) p1 p2 = p1 ++ p2 >>: fst
+let (-+) p1 p2 = p1 ++ p2 >>: snd
+----
+
+Now let's test we can indeed sequence parsers:
+
+.tests
+[source,ml]
+----
+"Can parse a sequence" >:: (
+  fun _ctx ->
+    let ab = input_of_string "ab" in
+    assert_same_results (Tuple2.print Char.print Char.print)
+      [('a', 'b'), no_corr, []]
+      ((item 'a' ++ item 'b') no_corr ab) ;
+    assert_same_results Char.print
+      ['a', no_corr, []]
+      ((item 'a' +- item 'b') no_corr ab)
+) ;
+----
+
+The second most useful combinator is the alternative:
+
+.Parsers: alternative
+[source,ml]
+----
+let any p1 p2 corr rest =
   let res_list1 = p1 corr rest in
   let res_list2 = p2 corr rest in
   List.rev_append res_list1 res_list2
+
+let (|||) = any
 ----
 
 Notice that results are really sets not list, so the order in which the
-alternatives are listed does not matter.
+alternatives are listed does not matter.  Notice also that this is not an
+exclusive alternative: if both +p1+ and +p2+ can parse them both will
+contribute a result to the result list. As discussed in the beginning we do
+not enforce that if +p1+ succeeds then +p2+ must fail nor the other way
+around. If this is wanted though then it is easy enough to write:
 
-Finally, it is often useful to have a first parser output a list of result
-which are then feed into another parser input:
+.Parsers: exclusive alternative
+[source,ml]
+----
+let either p1 p2 =
+  (check "??1" (not p2) -+ p1) ||| (check "??2" (not p1) -+ p2)
 
-.Combinators: pipe
+let (|/|) = either
+----
+
+With sequences and alternatives we can start writing some interesting tests:
+
+.tests
+[source,ml]
+----
+"any: 'a' or 'b' but not 'z'" >:: (
+  fun _ctx ->
+    let a_or_b = item 'a' ||| item 'b' in
+    assert_same_results Char.print
+      ['a', no_corr, []]
+      (a_or_b no_corr (input_of_string "a")) ;
+    assert_same_results Char.print
+      ['b', no_corr, []]
+      (a_or_b no_corr (input_of_string "b")) ;
+    assert_same_results Char.print
+      []
+      (a_or_b no_corr (input_of_string "z")) ;
+    assert_same_results Char.print
+      ['a', correction_at (Coord 0) "missing item", [] ;
+       'b', correction_at (Coord 0) "missing item", []]
+      (a_or_b corr (input_of_string "z"))
+) ;
+----
+
+Finally, it is often useful to have a first parser output a list of results
+which are then feed into another parser. Think for example: splitting character
+stream into keywords and then parsing those keywords.
+
+.Parsers: pipe
 [source,ml]
 ----
 let pipe p1 p2 corr rest =
@@ -522,6 +677,99 @@ let pipe p1 p2 corr rest =
       (x2, corr2, unp1)::res_list)
       res_list res_list2)
     [] res_list1
+----
+
+== Repeating parsers
+
+Binding several parsers allows us to get several values from the input stream but it would be more useful to be able to repeat a given parser.
+
+Before that, a special case of repetition will prove very useful: having zero or one occurrence of +p+:
+
+.Parsers: zero or one
+[source,ml]
+----
+let optional ~def p = p ||| return def
+----
+
+The +repeat+ combinator is a swiss-army knife for all variants of repetitions,
+requiring a parser +p+ to succeed from +min+ to +max+ times consecutively, with
+an optional additional parser +sep+ for a separator in between +p+ occurrences.
+It returns a list of all values returned by the successive +p+.
+
+But allowing +min+ to be +0+ (and making it the default value) we expect to 
+cut down on the +optional (repeat p)+ that we would have otherwise.
+
+.Parsers: repetition of a parser
+[source,ml]
+----
+let rec repeat ?(sep=return ()) ?(min=0) ?max p corr rest =
+  if max = Some 0 then (
+    if min = 0 then return [] corr rest
+    else fail corr rest
+  ) else (
+    let pred_ma = match max with None -> None
+                               | Some m -> Some (m-1) in
+    match min with 0 ->
+      (* we may stop here or continue *)
+      (optional ~def:[] (repeat ~sep ~min:1 ?max p)) corr rest
+                | 1 ->
+      (* at least one more, everything else optional *)
+      ((p ++ optional ~def:[]
+                 (sep -+ (repeat ~sep ~min:1 ?max:pred_ma p))) >>:
+        fun (x, xs) -> x::xs) corr rest
+                | _ ->
+      (* above that, repetition is mandatory *)
+      ((p +- sep ++ repeat ~sep ~min:(min-1) ?max:pred_ma p) >>:
+        fun (x, xs) -> x::xs) corr rest
+  )
+----
+
+Notice there are two conditions that terminate the recursion: +max+ reaching
++0+ (no more occurrences permitted) or, when +min > 0+, a failure of +p+.
+
+We can easily define the greedy version of +repeat+ (that is, a version that
+swallows as many +p+ occurrences as present in the input stream) using check:
+
+.Parsers: greedy repetition
+[source,ml]
+----
+let repeat_greedy ?(sep=return ()) ?min ?max p =
+  repeat ~sep ?min ?max p +- check "extraneous" (not (sep -+ p))
+----
+
+.tests
+[source,ml]
+----
+"repetition: canonical successes" >:: (
+  fun _ctx ->
+    let aaab = input_of_string "aaab" in
+    assert_same_results (List.print Char.print)
+      [['a';'a';'a'], no_corr, input_of_string ~offset:3 "b" ;
+       ['a';'a'],     no_corr, input_of_string ~offset:2 "ab" ;
+       ['a'],         no_corr, input_of_string ~offset:1 "aab" ;
+       [],            no_corr, aaab]
+      (repeat (item 'a') no_corr aaab) ;
+    (* Same with min=2 *)
+    assert_same_results (List.print Char.print)
+      [['a';'a';'a'], no_corr, input_of_string ~offset:3 "b" ;
+       ['a';'a'],     no_corr, input_of_string ~offset:2 "ab"]
+      (repeat ~min:2 (item 'a') no_corr aaab) ;
+    (* Testing max=2 *)
+    assert_same_results (List.print Char.print)
+      [['a';'a'],     no_corr, input_of_string ~offset:2 "ab" ;
+       ['a'],         no_corr, input_of_string ~offset:1 "aab" ;
+       [],            no_corr, aaab]
+      (repeat ~max:2 (item 'a') no_corr aaab) ;
+    (* Now with min and max *)
+    assert_same_results (List.print Char.print)
+      [['a';'a'],     no_corr, input_of_string ~offset:2 "ab" ;
+       ['a'],         no_corr, input_of_string ~offset:1 "aab"]
+      (repeat ~min:1 ~max:2 (item 'a') no_corr aaab) ;
+    (* min = max *) 
+    assert_same_results (List.print Char.print)
+      [['a';'a'],     no_corr, input_of_string ~offset:2 "ab"]
+      (repeat ~min:2 ~max:2 (item 'a') no_corr aaab)
+) ;
 ----
 
 == Miscellaneous
@@ -609,5 +857,4 @@ let print_result print_input print_coord print_output fmt (x, corr, rest) =
     (print_corrections print_coord) corr
     (List.print (fun fmt (tok, _pos) -> print_input fmt tok)) rest
 ----
-
 
