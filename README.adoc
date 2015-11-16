@@ -312,10 +312,10 @@ open OUnit2
 open Corrections
 open Parsers
 
-let input_of_string ?(offset=0) s =
+let input_of_string s =
   let rec loop n tl =
     if n < 0 then tl else
-    loop (n-1) ((s.[n], n + offset) :: tl) in
+    loop (n-1) ((s.[n], n) :: tl) in
   loop (String.length s - 1) []
 
 let max_changes = 3
@@ -541,17 +541,17 @@ let (>>:) = map
 == Combinators
 
 The three first combinators to consider are the succession of two given
-parsers (binding), the alternative of two parsers, and the pipe of one parser
-result into the input of another one.
+parsers, the alternative of two parsers, and the pipe of one parser result into
+the input of another one.
 
 Notice that since we are now merely combining parsers we do not have to care
 about error correction any more: only the base parsers need to pretend
 succeeding when they fail.
 
-.Parsers: binding two parsers
+.Parsers: succession of two parsers
 [source,ml]
 ----
-let bind p1 p2 corr rest =
+let cons p1 p2 corr rest =
   match p1 corr rest with
   | [] -> [] (* if p1 fails there is no need to try p2 *)
   | res_list1 -> (* for each possible result, try to continue parsing with p2 *)
@@ -566,19 +566,19 @@ let bind p1 p2 corr rest =
       [] res_list1
 ----
 
-This parser being used to connect successive parsers we'd rather have a shorter infix alternative for +bind+:
+This parser being used to connect successive parsers we'd rather have a shorter infix alternative for +cons+:
 
-.Parsers: infix operator for bind
+.Parsers: infix operator for cons
 [source,ml]
 ----
-let (++) p1 p2 = bind p1 p2
+let (++) p1 p2 = cons p1 p2
 ----
 
 Also, we will often discard the result of one parser. For instance when parsing
 delimiters the only information is that the parser succeeds (there is a
 delimiter) but there is no value to attach to that success. Also when using
 the +check+ parser, which purpose is really not its return value. So here are
-three variants of bind: one that ignores the result of +p1+, one that ignores
+three variants of +cons+: one that ignores the result of +p1+, one that ignores
 the result of +p2+, and one that ignore both (returning +()+):
 
 .Parsers: other convenient infix operators
@@ -702,7 +702,7 @@ cut down on the +optional (repeat p)+ that we would have otherwise.
 .Parsers: repetition of a parser
 [source,ml]
 ----
-let rec repeat ?(sep=return ()) ?(min=0) ?max p corr rest =
+let rec repeat sep ?(min=0) ?max p corr rest =
   if max = Some 0 then (
     if min = 0 then return [] corr rest
     else fail corr rest
@@ -711,17 +711,37 @@ let rec repeat ?(sep=return ()) ?(min=0) ?max p corr rest =
                                | Some m -> Some (m-1) in
     match min with 0 ->
       (* we may stop here or continue *)
-      (optional ~def:[] (repeat ~sep ~min:1 ?max p)) corr rest
+      (optional ~def:[] (repeat sep ~min:1 ?max p)) corr rest
                 | 1 ->
       (* at least one more, everything else optional *)
       ((p ++ optional ~def:[]
-                 (sep -+ (repeat ~sep ~min:1 ?max:pred_ma p))) >>:
+                 (sep -+ (repeat sep ~min:1 ?max:pred_ma p))) >>:
         fun (x, xs) -> x::xs) corr rest
                 | _ ->
       (* above that, repetition is mandatory *)
-      ((p +- sep ++ repeat ~sep ~min:(min-1) ?max:pred_ma p) >>:
+      ((p +- sep ++ repeat sep ~min:(min-1) ?max:pred_ma p) >>:
         fun (x, xs) -> x::xs) corr rest
   )
+----
+
+We'd like to get away with the mandatory +sep+ parameter using a default value
+of +return ()+ but that would prevent OCaml compiler to infer that since +sep+
+result is consistently discarded any result type would be as good.  Simpler
+example of this using the _REPL_:
+
+----
+# let f ?sep x = x ;;
+val f : ?sep:'a -> 'b -> 'b = <fun>
+# let f ?(sep=42) x = x;;
+val f : ?sep:int -> 'a -> 'a = <fun>
+----
+
+Therefore merely provide this short constant:
+
+.Parsers: nosep
+[source,ml]
+----
+let nosep corr unp = return () corr unp
 ----
 
 Notice there are two conditions that terminate the recursion: +max+ reaching
@@ -730,11 +750,28 @@ Notice there are two conditions that terminate the recursion: +max+ reaching
 We can easily define the greedy version of +repeat+ (that is, a version that
 swallows as many +p+ occurrences as present in the input stream) using check:
 
+.(erroneous) greedy repetition
+[source,ml]
+----
+let repeat_greedy sep ?min ?max p =
+  repeat sep ?min ?max p +- check "extraneous" (not (sep -+ p))
+----
+
+...which unfortunately fails for +min=0+ because of the separator.  We have to
+be more cautious not to allow an input stream starting with +p+ before
+returning +[]+:
+
 .Parsers: greedy repetition
 [source,ml]
 ----
-let repeat_greedy ?(sep=return ()) ?min ?max p =
-  repeat ~sep ?min ?max p +- check "extraneous" (not (sep -+ p))
+let repeat_greedy sep ?min ?max p =
+  let several_greedy min ?max p =
+    repeat sep ~min ?max p +- check "extraneous" (not (sep -+ p)) in
+  match min with
+  | None | Some 0 ->
+    several_greedy 1 ?max p ||| (check "extraneous" (not p) >>: fun () -> [])
+  | Some min ->
+    several_greedy min ?max p
 ----
 
 .tests
@@ -742,34 +779,79 @@ let repeat_greedy ?(sep=return ()) ?min ?max p =
 ----
 "repetition: canonical successes" >:: (
   fun _ctx ->
-    let aaab = input_of_string "aaab" in
-    assert_same_results (List.print Char.print)
-      [['a';'a';'a'], no_corr, input_of_string ~offset:3 "b" ;
-       ['a';'a'],     no_corr, input_of_string ~offset:2 "ab" ;
-       ['a'],         no_corr, input_of_string ~offset:1 "aab" ;
-       [],            no_corr, aaab]
-      (repeat (item 'a') no_corr aaab) ;
-    (* Same with min=2 *)
-    assert_same_results (List.print Char.print)
-      [['a';'a';'a'], no_corr, input_of_string ~offset:3 "b" ;
-       ['a';'a'],     no_corr, input_of_string ~offset:2 "ab"]
-      (repeat ~min:2 (item 'a') no_corr aaab) ;
-    (* Testing max=2 *)
-    assert_same_results (List.print Char.print)
-      [['a';'a'],     no_corr, input_of_string ~offset:2 "ab" ;
-       ['a'],         no_corr, input_of_string ~offset:1 "aab" ;
-       [],            no_corr, aaab]
-      (repeat ~max:2 (item 'a') no_corr aaab) ;
-    (* Now with min and max *)
-    assert_same_results (List.print Char.print)
-      [['a';'a'],     no_corr, input_of_string ~offset:2 "ab" ;
-       ['a'],         no_corr, input_of_string ~offset:1 "aab"]
-      (repeat ~min:1 ~max:2 (item 'a') no_corr aaab) ;
-    (* min = max *) 
-    assert_same_results (List.print Char.print)
-      [['a';'a'],     no_corr, input_of_string ~offset:2 "ab"]
-      (repeat ~min:2 ~max:2 (item 'a') no_corr aaab)
+    let assert_ok ?(greedy=false) sep ?min ?max rest exp =
+      assert_same_results (List.print Char.print)
+        exp
+        ((if greedy then repeat_greedy else repeat) sep ?min ?max (item 'a') no_corr rest) in
+    let test_with_sep sep sep_len rest =
+      let drop n = List.drop (1 + (n-1)*(1+sep_len)) rest in
+      assert_ok sep rest
+        [['a';'a';'a'], no_corr, drop 3 ;
+         ['a';'a'],     no_corr, drop 2 ;
+         ['a'],         no_corr, drop 1 ;
+         [],            no_corr, rest] ;
+      (* Same with min=2 *)
+      assert_ok sep ~min:2 rest
+        [['a';'a';'a'], no_corr, drop 3 ;
+         ['a';'a'],     no_corr, drop 2] ;
+      (* Testing max=2 *)
+      assert_ok sep ~max:2 rest
+        [['a';'a'],     no_corr, drop 2;
+         ['a'],         no_corr, drop 1;
+         [],            no_corr, rest] ;
+      (* Now with min and max *)
+      assert_ok sep ~min:1 ~max:2 rest
+        [['a';'a'],     no_corr, drop 2 ;
+         ['a'],         no_corr, drop 1] ;
+      (* min = max *) 
+      assert_ok sep ~min:2 ~max:2 rest
+        [['a';'a'],     no_corr, drop 2] in
+    let aaab = input_of_string "aaab"
+    and a_a_a_b = input_of_string "a-a-a-b" in
+    test_with_sep nosep      0 aaab ;
+    test_with_sep (item '-') 1 a_a_a_b ;
+    assert_ok ~greedy:true nosep aaab
+      [['a';'a';'a'], no_corr, List.drop 3 aaab] ;
+    assert_ok ~greedy:true (item '-') a_a_a_b
+      [['a';'a';'a'], no_corr, List.drop 5 a_a_a_b]
 ) ;
+"repetition: simplest failure" >:: (
+  fun _ctx ->
+    assert_same_results (List.print Char.print)
+      []
+      (repeat nosep ~min:1 (item 'a') no_corr (input_of_string "zaab")) ;
+    assert_same_results (List.print Char.print)
+      []
+      (repeat_greedy nosep ~min:1 (item 'a') no_corr (input_of_string "zaab"))
+) ;
+"repetition: missing separator" >:: (
+  fun _ctx ->
+    assert_same_results (List.print Char.print)
+      []
+      (repeat (item '-') ~min:3 (item 'a') no_corr (input_of_string "a-aab")) ;
+    assert_same_results (List.print Char.print)
+      []
+      (repeat_greedy (item '-') ~min:3 (item 'a') no_corr (input_of_string "a-aab"))
+) ;
+"repetition: below min" >:: (
+  fun _ctx ->
+    assert_same_results (List.print Char.print)
+      []
+      (repeat nosep ~min:2 (item 'a') no_corr (input_of_string "baab")) ;
+    assert_same_results (List.print Char.print)
+      []
+      (repeat_greedy nosep ~min:2 (item 'a') no_corr (input_of_string "baab"))
+) ;
+----
+
+Some variants of +repeat+ can now be defined:
+
+.Parsers: repeat variants
+[source,ml]
+----
+let several sep = repeat sep ~min:1
+let several_greedy sep = repeat_greedy sep ~min:1
+let times sep n = repeat sep ~min:n ~max:n
 ----
 
 == Miscellaneous
