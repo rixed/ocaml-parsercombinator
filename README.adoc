@@ -540,33 +540,59 @@ let (>>:) = map
 
 == Combinators
 
-The three first combinators to consider are the succession of two given
-parsers, the alternative of two parsers, and the pipe of one parser result into
-the input of another one.
+The first combinators to consider are the succession of two given parsers, the
+alternative of two parsers, and the pipe of one parser result into the input of
+another one.
 
 Notice that since we are now merely combining parsers we do not have to care
 about error correction any more: only the base parsers need to pretend
 succeeding when they fail.
 
+The more general way to build a combinator for the succession of to parsers is
+to take the first parser +p1+ and a function +f+ witch, given the output of
++p1+, will return a parser +p2+ to apply to the remaining of the input stream.
+Let's call this combinator +bind+ (by analogy with the type of the +bind+
+operation in the monad ``design pattern''). The values of +bind p1 f+ are the
+values of +p2+, +p1+ intermediary values being only meaningful to build +p2+.
+
+.Parsers: bind
+[source,ml]
+----
+let bind p1 f corr rest =
+  (* for each possible result of p1, try to continue parsing with p2 *)
+  p1 corr rest |>
+  List.fold_left (fun res_list' (x1, corr1, unp1) ->
+    let p2 = f x1 in
+    match p2 corr1 unp1 with
+    | [] -> res_list'
+    | res_list2 ->
+      List.rev_append res_list2 res_list')
+    []
+----
+
+With the usual infix operator:
+
+.Parsers: infix operator for bind
+[source,ml]
+----
+let (>>=) = bind
+----
+
+Given this +bind+ combinator, the concatenation of two given parsers +p1+ and
++p2+ can be easily written as:
+
 .Parsers: succession of two parsers
 [source,ml]
 ----
-let cons p1 p2 corr rest =
-  match p1 corr rest with
-  | [] -> [] (* if p1 fails there is no need to try p2 *)
-  | res_list1 -> (* for each possible result, try to continue parsing with p2 *)
-    List.fold_left (fun res_list' (x1, corr1, unp1) ->
-      match p2 corr1 unp1 with
-      | [] -> res_list'
-      | res_list2 ->
-        (* The final result set is the product of each
-           result of p1 with all following results of p2 *)
-        List.fold_left (fun res_list'' (x2, corr2, unp2) ->
-          ((x1,x2), corr2, unp2)::res_list'') res_list' res_list2)
-      [] res_list1
+let cons p1 p2 =
+  p1 >>= (fun x1 -> p2 >>: fun x2 -> x1,x2)
 ----
 
-This parser being used to connect successive parsers we'd rather have a shorter infix alternative for +cons+:
+Here, we want the final result set to be the product of each
+result of +p1+ with all following results of +p2+.
+
+This parser being used to connect successive parsers we'd rather have a shorter
+infix alternative for +cons+:
 
 .Parsers: infix operator for cons
 [source,ml]
@@ -852,6 +878,39 @@ Some variants of +repeat+ can now be defined:
 let several sep = repeat sep ~min:1
 let several_greedy sep = repeat_greedy sep ~min:1
 let times sep n = repeat sep ~min:n ~max:n
+----
+
+With all this more interesting tests can be devised:
+
+.tests
+[source,ml]
+----
+"Several combinators bound together" >:: (
+  fun _ctx ->
+    let digit = cond "digit" (fun n ->
+      Char.code n >= Char.code '0' && Char.code n <= Char.code '9') '1' in
+    let p = digit >>= (fun c ->
+      let i = Char.code c - Char.code '0' in
+      assert_bool "not a digit" (i >= 0 && i <= 9) ;
+      (* match a sequence of i zeros *)
+      times nosep i (item '0')) in
+    let rest1 = input_of_string "105"
+    and rest2 = input_of_string "100"
+    and rest3 = input_of_string "30005"
+    and rest4 = input_of_string "3005" in
+    assert_same_results (List.print Char.print)
+      [['0'], no_corr, List.drop 2 rest1]
+      (p no_corr rest1) ;
+    assert_same_results (List.print Char.print)
+      [['0'], no_corr, List.drop 2 rest2]
+      (p no_corr rest2) ;
+    assert_same_results (List.print Char.print)
+      [['0';'0';'0'], no_corr, List.drop 4 rest3]
+      (p no_corr rest3) ;
+    assert_same_results (List.print Char.print)
+      []
+      (p no_corr rest4)
+) ;
 ----
 
 == Miscellaneous
