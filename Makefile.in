@@ -3,7 +3,9 @@ top_srcdir = @top_srcdir@
 PKG_NAME = parsercombinator
 
 # First extract the code from README
-GEN_SOURCES = BoundedSet.ml Corrections.ml Parsers.ml test.ml
+GEN_SOURCES = BoundedSet.ml Corrections.ml Parsers.ml \
+							PerlImm.ml \
+							test.ml
 GEN_FILES = $(GEN_SOURCES) README.html
 
 SOURCES = $(GEN_SOURCES)
@@ -24,7 +26,7 @@ EXAMPLES = $(EXAMPLES_BYTE) $(EXAMPLES_OPT)
 
 SYNTAX =
 
-.PHONY: all loc doc check-spec clean-spec dep-spec
+.PHONY: all loc doc check-spec clean-spec dep-spec wc
 all: $(XARCHIVE) examples README.html
 
 # Do not depend on $(GEN_SOURCES:.ml=.cmo) so that we get the .annot file
@@ -60,3 +62,6 @@ README.html: README.adoc
 	asciidoc -a data-uri -a icons -a toc -a max-width=55em --theme volnitsky -o $@ $<
 
 doc: README.html
+
+wc: README.adoc
+	@cat $^ | tr -d '[:punct:]' | tr ' ' '\n' | grep -v '^$$' | sort | uniq -c | sort -nr

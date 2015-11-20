@@ -89,6 +89,6 @@ dep: dep-spec
 	$(MAKE) .depend
 
 clear:
-	sed -i -e 's/[ 	]\+$$//' $(wildcard *.ml *.mli *.c *.scm)
+	sed -i.bak -e 's/[ 	]\+$$//' $(wildcard *.adoc)
 
 -include .depend

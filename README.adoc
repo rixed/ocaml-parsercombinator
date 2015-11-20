@@ -175,7 +175,7 @@ type 'c position = Coord of 'c | EOF
 
 So we need to record all changes that have already occurred (what and where)
 and how many changes we are still allowed to do. The ``What'' is limited to
-any string description of the parser that we forced to succeed. 
+any string description of the parser that we forced to succeed.
 
 .Corrections: type
 [source,ml]
@@ -198,7 +198,7 @@ let change_at corr pos msg =
 ----
 
 Now that we know what corrections look like and that we have to read the
-positions alongside the tokens from the input stream, we can finally write the 
+positions alongside the tokens from the input stream, we can finally write the
 definitive parser type:
 
 .Parsers: final type
@@ -311,6 +311,7 @@ open Batteries
 open OUnit2
 open Corrections
 open Parsers
+(* ...other tested modules... *)
 
 let input_of_string s =
   let rec loop n tl =
@@ -612,6 +613,7 @@ the result of +p2+, and one that ignore both (returning +()+):
 ----
 let (+-) p1 p2 = p1 ++ p2 >>: fst
 let (-+) p1 p2 = p1 ++ p2 >>: snd
+let (--) p1 p2 = p1 ++ p2 >>: fun _ -> ()
 ----
 
 Now let's test we can indeed sequence parsers:
@@ -636,18 +638,18 @@ The second most useful combinator is the alternative:
 .Parsers: alternative
 [source,ml]
 ----
-let any p1 p2 corr rest =
+let oneof p1 p2 corr rest =
   let res_list1 = p1 corr rest in
   let res_list2 = p2 corr rest in
   List.rev_append res_list1 res_list2
 
-let (|||) = any
+let (|||) = oneof
 ----
 
 Notice that results are really sets not list, so the order in which the
 alternatives are listed does not matter.  Notice also that this is not an
-exclusive alternative: if both +p1+ and +p2+ can parse them both will
-contribute a result to the result list. As discussed in the beginning we do
+exclusive alternative: if both +p1+ and +p2+ can parse then both will
+contribute a result to the result set. As discussed in the beginning we do
 not enforce that if +p1+ succeeds then +p2+ must fail nor the other way
 around. If this is wanted though then it is easy enough to write:
 
@@ -707,9 +709,12 @@ let pipe p1 p2 corr rest =
 
 == Repeating parsers
 
-Binding several parsers allows us to get several values from the input stream but it would be more useful to be able to repeat a given parser.
+Binding several parsers already gives us a way to harvest several values from
+the input stream but many times what is needed is to repeat the same parser an
+unspecified number of times.
 
-Before that, a special case of repetition will prove very useful: having zero or one occurrence of +p+:
+Before that, a special case of repetition will prove very useful: having zero
+or one occurrence of +p+:
 
 .Parsers: zero or one
 [source,ml]
@@ -722,13 +727,13 @@ requiring a parser +p+ to succeed from +min+ to +max+ times consecutively, with
 an optional additional parser +sep+ for a separator in between +p+ occurrences.
 It returns a list of all values returned by the successive +p+.
 
-But allowing +min+ to be +0+ (and making it the default value) we expect to 
+But allowing +min+ to be +0+ (and making it the default value) we expect to
 cut down on the +optional (repeat p)+ that we would have otherwise.
 
 .Parsers: repetition of a parser
 [source,ml]
 ----
-let rec repeat sep ?(min=0) ?max p corr rest =
+let rec repeat ~sep ?(min=0) ?max p corr rest =
   if max = Some 0 then (
     if min = 0 then return [] corr rest
     else fail corr rest
@@ -737,15 +742,15 @@ let rec repeat sep ?(min=0) ?max p corr rest =
                                | Some m -> Some (m-1) in
     match min with 0 ->
       (* we may stop here or continue *)
-      (optional ~def:[] (repeat sep ~min:1 ?max p)) corr rest
+      (optional ~def:[] (repeat ~sep ~min:1 ?max p)) corr rest
                 | 1 ->
       (* at least one more, everything else optional *)
       ((p ++ optional ~def:[]
-                 (sep -+ (repeat sep ~min:1 ?max:pred_ma p))) >>:
+                 (sep -+ (repeat ~sep ~min:1 ?max:pred_ma p))) >>:
         fun (x, xs) -> x::xs) corr rest
                 | _ ->
       (* above that, repetition is mandatory *)
-      ((p +- sep ++ repeat sep ~min:(min-1) ?max:pred_ma p) >>:
+      ((p +- sep ++ repeat ~sep ~min:(min-1) ?max:pred_ma p) >>:
         fun (x, xs) -> x::xs) corr rest
   )
 ----
@@ -779,8 +784,8 @@ swallows as many +p+ occurrences as present in the input stream) using check:
 .(erroneous) greedy repetition
 [source,ml]
 ----
-let repeat_greedy sep ?min ?max p =
-  repeat sep ?min ?max p +- check "extraneous" (not (sep -+ p))
+let repeat_greedy ~sep ?min ?max p =
+  repeat ~sep ?min ?max p +- check "extraneous" (not (sep -+ p))
 ----
 
 ...which unfortunately fails for +min=0+ because of the separator.  We have to
@@ -790,9 +795,9 @@ returning +[]+:
 .Parsers: greedy repetition
 [source,ml]
 ----
-let repeat_greedy sep ?min ?max p =
+let repeat_greedy ~sep ?min ?max p =
   let several_greedy min ?max p =
-    repeat sep ~min ?max p +- check "extraneous" (not (sep -+ p)) in
+    repeat ~sep ~min ?max p +- check "extraneous" (not (sep -+ p)) in
   match min with
   | None | Some 0 ->
     several_greedy 1 ?max p ||| (check "extraneous" (not p) >>: fun () -> [])
@@ -805,68 +810,68 @@ let repeat_greedy sep ?min ?max p =
 ----
 "repetition: canonical successes" >:: (
   fun _ctx ->
-    let assert_ok ?(greedy=false) sep ?min ?max rest exp =
+    let assert_ok ?(greedy=false) ~sep ?min ?max rest exp =
       assert_same_results (List.print Char.print)
         exp
-        ((if greedy then repeat_greedy else repeat) sep ?min ?max (item 'a') no_corr rest) in
+        ((if greedy then repeat_greedy else repeat) ~sep ?min ?max (item 'a') no_corr rest) in
     let test_with_sep sep sep_len rest =
       let drop n = List.drop (1 + (n-1)*(1+sep_len)) rest in
-      assert_ok sep rest
+      assert_ok ~sep rest
         [['a';'a';'a'], no_corr, drop 3 ;
          ['a';'a'],     no_corr, drop 2 ;
          ['a'],         no_corr, drop 1 ;
          [],            no_corr, rest] ;
       (* Same with min=2 *)
-      assert_ok sep ~min:2 rest
+      assert_ok ~sep ~min:2 rest
         [['a';'a';'a'], no_corr, drop 3 ;
          ['a';'a'],     no_corr, drop 2] ;
       (* Testing max=2 *)
-      assert_ok sep ~max:2 rest
+      assert_ok ~sep ~max:2 rest
         [['a';'a'],     no_corr, drop 2;
          ['a'],         no_corr, drop 1;
          [],            no_corr, rest] ;
       (* Now with min and max *)
-      assert_ok sep ~min:1 ~max:2 rest
+      assert_ok ~sep ~min:1 ~max:2 rest
         [['a';'a'],     no_corr, drop 2 ;
          ['a'],         no_corr, drop 1] ;
-      (* min = max *) 
-      assert_ok sep ~min:2 ~max:2 rest
+      (* min = max *)
+      assert_ok ~sep ~min:2 ~max:2 rest
         [['a';'a'],     no_corr, drop 2] in
     let aaab = input_of_string "aaab"
     and a_a_a_b = input_of_string "a-a-a-b" in
     test_with_sep nosep      0 aaab ;
     test_with_sep (item '-') 1 a_a_a_b ;
-    assert_ok ~greedy:true nosep aaab
+    assert_ok ~greedy:true ~sep:nosep aaab
       [['a';'a';'a'], no_corr, List.drop 3 aaab] ;
-    assert_ok ~greedy:true (item '-') a_a_a_b
+    assert_ok ~greedy:true ~sep:(item '-') a_a_a_b
       [['a';'a';'a'], no_corr, List.drop 5 a_a_a_b]
 ) ;
 "repetition: simplest failure" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
       []
-      (repeat nosep ~min:1 (item 'a') no_corr (input_of_string "zaab")) ;
+      (repeat ~sep:nosep ~min:1 (item 'a') no_corr (input_of_string "zaab")) ;
     assert_same_results (List.print Char.print)
       []
-      (repeat_greedy nosep ~min:1 (item 'a') no_corr (input_of_string "zaab"))
+      (repeat_greedy ~sep:nosep ~min:1 (item 'a') no_corr (input_of_string "zaab"))
 ) ;
 "repetition: missing separator" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
       []
-      (repeat (item '-') ~min:3 (item 'a') no_corr (input_of_string "a-aab")) ;
+      (repeat ~sep:(item '-') ~min:3 (item 'a') no_corr (input_of_string "a-aab")) ;
     assert_same_results (List.print Char.print)
       []
-      (repeat_greedy (item '-') ~min:3 (item 'a') no_corr (input_of_string "a-aab"))
+      (repeat_greedy ~sep:(item '-') ~min:3 (item 'a') no_corr (input_of_string "a-aab"))
 ) ;
 "repetition: below min" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
       []
-      (repeat nosep ~min:2 (item 'a') no_corr (input_of_string "baab")) ;
+      (repeat ~sep:nosep ~min:2 (item 'a') no_corr (input_of_string "baab")) ;
     assert_same_results (List.print Char.print)
       []
-      (repeat_greedy nosep ~min:2 (item 'a') no_corr (input_of_string "baab"))
+      (repeat_greedy ~sep:nosep ~min:2 (item 'a') no_corr (input_of_string "baab"))
 ) ;
 ----
 
@@ -875,12 +880,12 @@ Some variants of +repeat+ can now be defined:
 .Parsers: repeat variants
 [source,ml]
 ----
-let several sep = repeat sep ~min:1
-let several_greedy sep = repeat_greedy sep ~min:1
-let times sep n = repeat sep ~min:n ~max:n
+let several ~sep = repeat ~sep ~min:1
+let several_greedy ~sep = repeat_greedy ~sep ~min:1
+let times ~sep n = repeat ~sep ~min:n ~max:n
 ----
 
-With all this more interesting tests can be devised:
+With all these new combinators, more interesting tests can be devised:
 
 .tests
 [source,ml]
@@ -893,7 +898,7 @@ With all this more interesting tests can be devised:
       let i = Char.code c - Char.code '0' in
       assert_bool "not a digit" (i >= 0 && i <= 9) ;
       (* match a sequence of i zeros *)
-      times nosep i (item '0')) in
+      times ~sep:nosep i (item '0')) in
     let rest1 = input_of_string "105"
     and rest2 = input_of_string "100"
     and rest3 = input_of_string "30005"
@@ -999,3 +1004,232 @@ let print_result print_input print_coord print_output fmt (x, corr, rest) =
     (List.print (fun fmt (tok, _pos) -> print_input fmt tok)) rest
 ----
 
+
+== Parsing Perl
+
+Now let's try to write parsers for Perl immediate values.
+
+=== Immediate values
+
+==== Scalars
+
+===== Numbers
+
+What OCaml type to encode perl integers?
+
+.other tested modules
+[source,ml]
+----
+open PerlImm
+----
+
+Notice that a simple base 10 integer number must start with a non 0 (otherwise
+it's octal).  We make no exception for the single digit '0' which we will parse
+as octal.
+
+.PerlImm: Numbers
+[source,ml]
+----
+open Batteries
+open Parsers
+
+let range a b msg corr rest =
+  cond msg (fun c -> c >= a && c <= b) a corr rest
+
+let decimal_digit corr rest =
+  range '0' '9' "digit" corr rest
+
+let non_zero_decimal_digit corr rest =
+  range '1' '9' "non-zero digit" corr rest
+
+let underscore corr rest =
+  item '_' corr rest
+
+let num_of_char c =
+  let cc = Char.code c in
+  if cc >= Char.code '0' && cc <= Char.code '9' then
+    cc - Char.code '0'
+  else if cc >= Char.code 'a' && cc <= Char.code 'f' then
+    cc - Char.code 'a' + 10
+  else if cc >= Char.code 'A' && cc <= Char.code 'F' then
+    cc - Char.code 'A' + 10
+  else invalid_arg "c"
+
+let unsigned_decimal_number corr rest =
+  let digits corr rest = several ~sep:nosep decimal_digit corr rest in
+  (non_zero_decimal_digit +-
+   optional ~def:' ' underscore ++
+   optional ~def:[] (several ~sep:underscore digits) >>:
+   fun (first, next) ->
+   List.fold_left (fun c digits ->
+     List.fold_left (fun c digit ->
+       c * 10 + num_of_char digit) c digits) 0 ([first]::next)) corr rest
+
+let signed neg p corr rest =
+  (p|||
+   item ~what:"sign" '+' -+ p |||
+   (item ~what:"sign" '-' -+ p >>: neg)) corr rest
+
+let decimal_number corr rest =
+  signed Int.neg unsigned_decimal_number corr rest
+----
+
+We have made +num_of_char+ accept hexadecimal digits in foresight.
+
+Octals, hexadecimal and binary numbers are then build similarly: a mandatory
+prefix, and some digits interleaved with underscores. Notice that only the prefix is
+mandatory and '0x' for instance is a valid immediate (representing zero of course).
+
+.PerlImm: non decimal integers
+[source,ml]
+----
+let non_decimal_integer base prefix digit corr rest =
+  let digits corr rest = several ~sep:nosep digit corr rest in
+  (prefix -+ repeat ~sep:underscore digits >>:
+     List.fold_left (fun c digits ->
+       List.fold_left (fun c digit ->
+         c * base + num_of_char digit) c digits) 0) corr rest
+
+let octal_digit corr rest =
+  range '0' '7' "octal digit" corr rest
+
+let octal_number corr rest =
+  (non_decimal_integer 8 (item ~what:"0" '0') octal_digit |>
+   signed Int.neg) corr rest
+
+let hexadecimal_digit corr rest =
+  cond "hexadecimal digit" (fun c ->
+    (c >= '0' && c <= '9') ||
+    (c >= 'a' && c <= 'f') ||
+    (c >= 'A' && c <= 'F')) '1' corr rest
+
+let non_decimal_integer_prefix x =
+  item ~what:"0" '0' --
+  cond "integer prefix" (fun c -> Char.lowercase c = x) x
+
+let hexadecimal_number corr rest =
+  let prefix = non_decimal_integer_prefix 'x' in
+  (non_decimal_integer 16 prefix hexadecimal_digit |>
+   signed Int.neg) corr rest
+
+let binary_digit corr rest =
+  range '0' '1' "bit" corr rest
+
+let binary_number corr rest =
+  let prefix = non_decimal_integer_prefix 'b' in
+  (non_decimal_integer 2 prefix binary_digit |>
+   signed Int.neg) corr rest
+----
+
+Finally, this parser can parse all kind of Perl immediate integers:
+
+.PerlImm: any integer
+[source,ml]
+----
+let integer corr rest =
+  (decimal_number |||
+   octal_number |||
+   hexadecimal_number |||
+   binary_number) corr rest
+----
+
+.tests
+[source,ml]
+----
+"parse integers" >:: (
+  fun _ctx ->
+    [ "4", 4 ;
+      "42", 42 ;
+      "12345", 12345 ;
+      "4_294_967_296", 4_294_967_296 ;
+      "042", 0o42 ;
+      "0x42", 0x42 ;
+      "0X42", 0x42 ;
+      "0xff", 0xff ;
+      "0b10", 0b10 ;
+      "0x", 0 ;
+      "0x4_2", 0x4_2 ;
+      "-4", -4 ;
+      "+4", 4 ;
+      "-042", -0o42 ;
+      "+042", 0o42 ;
+      "-0x42", -0x42 ;
+      "-0b10", -0b10 ] |>
+    List.iter (fun (input, output) ->
+      assert_same_results Int.print
+        [output, no_corr, []]
+        ((integer +- eof "char") no_corr (input_of_string input)))
+) ;
+"not decimal numbers" >:: (
+  fun _ctx ->
+    [ "0_" ; "0X_" ; "_123" ; "123_" ; "12__34" ; "_" ; "_0x123" ;
+      "-0_" ; "-_42" ] |>
+    List.iter (fun input ->
+      assert_same_results Int.print
+        []
+        ((integer +- eof "char") no_corr (input_of_string input)))
+) ;
+----
+
+The syntax for floating point numbers is more _perly_.  Indeed, in additional
+to the usual decimal and scientific notations, Perl allows hexadecimal floating
+point, with a power of two as the exponent (and a "p" instead of an"e" to
+introduce the exponent, for obvious reason). But this is not allowed in perl
+prior to version ...TBD...
+
+Also, notice that you can omit either the integer or the fractional part but
+not both.
+
+.PerlImm: floating point
+[source,ml]
+----
+let fractional_part inv_base digit corr rest =
+  let digits corr rest = several ~sep:nosep digit corr rest in
+  (several ~sep:underscore digits >>: fun digits ->
+    List.fold_left (fun c_scale digits ->
+      List.fold_left (fun (c, scale) digit ->
+        let n = num_of_char digit |> float_of_int in
+        c +. n *. scale, scale *. inv_base) c_scale digits) (0., inv_base) digits |>
+    fst) corr rest
+
+let unsigned_decimal_fractional corr rest =
+  let dot corr rest = item ~what:"fractional dot" '.' corr rest in
+  ((unsigned_decimal_number +- dot ++ fractional_part 0.1 decimal_digit) |||
+   (return 0 +- dot ++ fractional_part 0.1 decimal_digit) |||
+   (unsigned_decimal_number +- dot ++ return 0.) >>:
+   fun (n, p) -> float_of_int n +. p
+  ) corr rest
+
+let decimal_fractional corr rest =
+  signed Float.neg unsigned_decimal_fractional corr rest
+
+let decimal_scientific corr rest =
+  ((decimal_fractional |||
+    (decimal_number >>: float_of_int)) +-
+   cond "exponent delimiter" (fun c -> c = 'e' || c = 'E') 'e' ++
+   decimal_number >>: fun (m, e) ->
+     m *. Float.pow 10. (float_of_int e) (* FIXME *)
+   ) corr rest
+
+let fractional corr rest =
+  (decimal_fractional |||
+   decimal_scientific) corr rest
+----
+
+.tests
+[source,ml]
+----
+"floating point notation" >:: (
+  fun _ctx ->
+    [ "3.14", 3.14 ;
+      "-3.14", -3.14 ;
+      "314e2", 31400. ;
+      "314e-2", 3.14 ;
+      ".1", 0.1 ;
+      "1.", 1.0 ] |>
+    List.iter (fun (input, output) ->
+      assert_same_results Float.print
+        [output, no_corr, []]
+        ((fractional +- eof "char") no_corr (input_of_string input)))
+) ;
+----
