@@ -248,7 +248,7 @@ exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
 open Batteries
 open Corrections
 
-let fail_or_maybe_not msg x corr ?pos rest =
+let fail_or_maybe_not msg x ?pos corr rest =
   let pos = Option.default_delayed (fun () -> next_position rest) pos in
   if BoundedSet.is_full corr then []  (* no more errors permitted so fail for real *)
   else [x, change_at corr pos msg, rest]
@@ -304,7 +304,7 @@ http://ounit.forge.ocamlcore.org/api-ounit/index.html[oUnit] directly.
 Supposing for now that we have all the required printers we can set up a
 satisfying environment for tests:
 
-.test: The stage.
+.test: the stage.
 [source,ml]
 ----
 open Batteries
@@ -410,8 +410,8 @@ let eof msg corr = function
   | [] -> return () corr []
   | _ as rest ->
     fail_or_maybe_not
-      ("spurious "^msg) () corr
-      ~pos:(next_position rest) [] (* <1> *)
+      ("spurious "^msg) () 
+      ~pos:(next_position rest) corr [] (* <1> *)
 ----
 
 <1>: Here we will restart with +rest = []+. That's the only case when forcing
@@ -479,13 +479,17 @@ as an example, as OCaml compiler does when complaining about an incomplete
 pattern matching.
 
 It is possible to build many simpler and more convenient parsers on top of
-+cond+, such as +item+ which expects a specific token in the input:
++cond+, such as +item+ which expects a specific token in the input, and +range+
+which expect anything in the given character range:
 
 .Parsers: the item parser
 [source,ml]
 ----
 let item ?(what="item") x =
   cond ("missing "^what) ((=) x) x
+
+let range a b msg =
+  cond msg (fun c -> c >= a && c <= b) a
 ----
 
 .tests
@@ -755,6 +759,14 @@ let rec repeat ~sep ?(min=0) ?max p corr rest =
   )
 ----
 
+Notice there are two conditions that terminate the recursion: +max+ reaching
++0+ (no more occurrences permitted) or, when +min > 0+, a failure of +p+.
+
+Notice also that repeat builds a whole list before sending it to the next
+stage.  We'd like to get away with this list which, most often than not will be
+changed into something else value by value. A lazy list (or a BatEnum) would
+likely be preferable here (as in other places).
+
 We'd like to get away with the mandatory +sep+ parameter using a default value
 of +return ()+ but that would prevent OCaml compiler to infer that since +sep+
 result is consistently discarded any result type would be as good.  Simpler
@@ -767,16 +779,18 @@ val f : ?sep:'a -> 'b -> 'b = <fun>
 val f : ?sep:int -> 'a -> 'a = <fun>
 ----
 
-Therefore merely provide this short constant:
+Therefore we merely provide this short do-nothing constant parser to be used
+when there is no separator:
 
 .Parsers: nosep
 [source,ml]
 ----
-let nosep corr unp = return () corr unp
+let nosep corr = return () corr
 ----
 
-Notice there are two conditions that terminate the recursion: +max+ reaching
-+0+ (no more occurrences permitted) or, when +min > 0+, a failure of +p+.
+You may be surprised by this notation, either because you were expecting +let
+nosep corr rest = return () corr rest+ or the shorter +let nosep = return ()+.
+Refer to the appendix about type generalization if that is the case (TODO: link).
 
 We can easily define the greedy version of +repeat+ (that is, a version that
 swallows as many +p+ occurrences as present in the input stream) using check:
@@ -892,9 +906,7 @@ With all these new combinators, more interesting tests can be devised:
 ----
 "Several combinators bound together" >:: (
   fun _ctx ->
-    let digit = cond "digit" (fun n ->
-      Char.code n >= Char.code '0' && Char.code n <= Char.code '9') '1' in
-    let p = digit >>= (fun c ->
+    let p = decimal_digit >>= (fun c ->
       let i = Char.code c - Char.code '0' in
       assert_bool "not a digit" (i >= 0 && i <= 9) ;
       (* match a sequence of i zeros *)
@@ -919,6 +931,46 @@ With all these new combinators, more interesting tests can be devised:
 ----
 
 == Miscellaneous
+
+=== Type generalization
+
+Let's get back to why we haven't defined +nosep+ simply as +let nosep = return
+()+, using automatic curryfication (TODO: link) to lighten the syntax:
+
+----
+# let nosep = return ();;
+              ^^^^^^^^^
+Error: The type of this expression, '_a -> '_b -> (unit * '_a * '_b) list,
+       contains type variables that cannot be generalized
+----
+
+This is actually a limitation of OCaml compiler. Here is what's happening:
+normally, in an expression like +let name = expr+, +expr+ will be typed first,
+leading in this case where +expr+ is actually +return ()+ to the type +`_a ->
+`_b -> (unit * '_a * '_b) list+ (where +'_a+ and +'_b+ are ``weak types''
+(refer to the definition of +return+: it's merely a function of 3 parameters
+returning a list of the triplet of these 3 parameters). Once +expr+ is typed,
+OCaml follow this rule: if +expr+ is a function (as in +function ... ->+), a
+constant or an identifier then generalize the weak types into universal types
+(the more familiar +'a+, +'b+ etc). If +erpx+ is anything fancier, such as a
+partial application as is the case here, then do not generalize.
+
+If instead we had +let name params... = expr+ then, given it's syntactic sugar
+for +let name = function ... -> expr+ then the ``weak types'' would have been
+generalized.
+
+So we have to make this looks more like a function, by making explicit at least
+one parameter (a process famously known under the tickling name
+``eta-expansion'').
+
+This feel arbitrary and it is ; aparently this is one of the minor disadvantage
+of a typing rules that has plenty of other advantages such as making something
+already quite complex much simpler. See the OCaml FAQ (TODO: link) for more
+details.
+
+This is unfortunately going to hit us a lot when definin parser combinators
+because we'd like to get away with the many meaningless and repetitive
+parameters which presence just obfuscate the intent of the code. C'est la vie.
 
 === BoundedSet
 
@@ -995,8 +1047,6 @@ let print_corrections print_coord fmt corr =
 .Parsers: printers
 [source,ml]
 ----
-open Batteries
-
 let print_result print_input print_coord print_output fmt (x, corr, rest) =
   Printf.fprintf fmt "(output=%a,corr=%a,rest=%a)"
     print_output x
@@ -1027,23 +1077,22 @@ Notice that a simple base 10 integer number must start with a non 0 (otherwise
 it's octal).  We make no exception for the single digit '0' which we will parse
 as octal.
 
-.PerlImm: Numbers
+.PerlImm: numbers
 [source,ml]
 ----
 open Batteries
 open Parsers
 
-let range a b msg corr rest =
-  cond msg (fun c -> c >= a && c <= b) a corr rest
+type integer = Int.t (* FIXME *)
 
-let decimal_digit corr rest =
-  range '0' '9' "digit" corr rest
+let decimal_digit corr =
+  range '0' '9' "digit" corr
 
-let non_zero_decimal_digit corr rest =
-  range '1' '9' "non-zero digit" corr rest
+let non_zero_decimal_digit corr =
+  range '1' '9' "non-zero digit" corr
 
-let underscore corr rest =
-  item '_' corr rest
+let underscore corr =
+  item '_' corr
 
 let num_of_char c =
   let cc = Char.code c in
@@ -1056,7 +1105,7 @@ let num_of_char c =
   else invalid_arg "c"
 
 let unsigned_decimal_number corr rest =
-  let digits corr rest = several ~sep:nosep decimal_digit corr rest in
+  let digits corr = several ~sep:nosep decimal_digit corr in
   (non_zero_decimal_digit +-
    optional ~def:' ' underscore ++
    optional ~def:[] (several ~sep:underscore digits) >>:
@@ -1065,13 +1114,13 @@ let unsigned_decimal_number corr rest =
      List.fold_left (fun c digit ->
        c * 10 + num_of_char digit) c digits) 0 ([first]::next)) corr rest
 
-let signed neg p corr rest =
+let signed neg p corr =
   (p|||
    item ~what:"sign" '+' -+ p |||
-   (item ~what:"sign" '-' -+ p >>: neg)) corr rest
+   (item ~what:"sign" '-' -+ p >>: neg)) corr
 
-let decimal_number corr rest =
-  signed Int.neg unsigned_decimal_number corr rest
+let decimal_number corr =
+  signed Int.neg unsigned_decimal_number corr
 ----
 
 We have made +num_of_char+ accept hexadecimal digits in foresight.
@@ -1083,42 +1132,42 @@ mandatory and '0x' for instance is a valid immediate (representing zero of cours
 .PerlImm: non decimal integers
 [source,ml]
 ----
-let non_decimal_integer base prefix digit corr rest =
-  let digits corr rest = several ~sep:nosep digit corr rest in
+let non_decimal_integer base prefix digit corr =
+  let digits corr = several ~sep:nosep digit corr in
   (prefix -+ repeat ~sep:underscore digits >>:
      List.fold_left (fun c digits ->
        List.fold_left (fun c digit ->
-         c * base + num_of_char digit) c digits) 0) corr rest
+         c * base + num_of_char digit) c digits) 0) corr
 
-let octal_digit corr rest =
-  range '0' '7' "octal digit" corr rest
+let octal_digit corr =
+  range '0' '7' "octal digit" corr
 
-let octal_number corr rest =
+let octal_number corr =
   (non_decimal_integer 8 (item ~what:"0" '0') octal_digit |>
-   signed Int.neg) corr rest
+   signed Int.neg) corr
 
-let hexadecimal_digit corr rest =
+let hexadecimal_digit corr =
   cond "hexadecimal digit" (fun c ->
     (c >= '0' && c <= '9') ||
     (c >= 'a' && c <= 'f') ||
-    (c >= 'A' && c <= 'F')) '1' corr rest
+    (c >= 'A' && c <= 'F')) '1' corr
 
 let non_decimal_integer_prefix x =
   item ~what:"0" '0' --
   cond "integer prefix" (fun c -> Char.lowercase c = x) x
 
-let hexadecimal_number corr rest =
+let hexadecimal_number corr =
   let prefix = non_decimal_integer_prefix 'x' in
   (non_decimal_integer 16 prefix hexadecimal_digit |>
-   signed Int.neg) corr rest
+   signed Int.neg) corr
 
-let binary_digit corr rest =
-  range '0' '1' "bit" corr rest
+let binary_digit corr =
+  range '0' '1' "bit" corr
 
-let binary_number corr rest =
+let binary_number corr =
   let prefix = non_decimal_integer_prefix 'b' in
   (non_decimal_integer 2 prefix binary_digit |>
-   signed Int.neg) corr rest
+   signed Int.neg) corr
 ----
 
 Finally, this parser can parse all kind of Perl immediate integers:
@@ -1126,17 +1175,17 @@ Finally, this parser can parse all kind of Perl immediate integers:
 .PerlImm: any integer
 [source,ml]
 ----
-let integer corr rest =
+let integer corr =
   (decimal_number |||
    octal_number |||
    hexadecimal_number |||
-   binary_number) corr rest
+   binary_number) corr
 ----
 
 .tests
 [source,ml]
 ----
-"parse integers" >:: (
+"integer immediate" >:: (
   fun _ctx ->
     [ "4", 4 ;
       "42", 42 ;
@@ -1160,7 +1209,7 @@ let integer corr rest =
         [output, no_corr, []]
         ((integer +- eof "char") no_corr (input_of_string input)))
 ) ;
-"not decimal numbers" >:: (
+"not decimal number immediate" >:: (
   fun _ctx ->
     [ "0_" ; "0X_" ; "_123" ; "123_" ; "12__34" ; "_" ; "_0x123" ;
       "-0_" ; "-_42" ] |>
@@ -1183,37 +1232,37 @@ not both.
 .PerlImm: floating point
 [source,ml]
 ----
-let fractional_part inv_base digit corr rest =
-  let digits corr rest = several ~sep:nosep digit corr rest in
-  (several ~sep:underscore digits >>: fun digits ->
+let fractional_part inv_base digit =
+  let digits corr = several ~sep:nosep digit corr in
+  several ~sep:underscore digits >>: fun digits ->
     List.fold_left (fun c_scale digits ->
       List.fold_left (fun (c, scale) digit ->
         let n = num_of_char digit |> float_of_int in
         c +. n *. scale, scale *. inv_base) c_scale digits) (0., inv_base) digits |>
-    fst) corr rest
+    fst
 
-let unsigned_decimal_fractional corr rest =
-  let dot corr rest = item ~what:"fractional dot" '.' corr rest in
+let unsigned_decimal_fractional corr =
+  let dot corr = item ~what:"fractional dot" '.' corr in
   ((unsigned_decimal_number +- dot ++ fractional_part 0.1 decimal_digit) |||
    (return 0 +- dot ++ fractional_part 0.1 decimal_digit) |||
    (unsigned_decimal_number +- dot ++ return 0.) >>:
    fun (n, p) -> float_of_int n +. p
-  ) corr rest
+  ) corr
 
-let decimal_fractional corr rest =
-  signed Float.neg unsigned_decimal_fractional corr rest
+let decimal_fractional corr =
+  signed Float.neg unsigned_decimal_fractional corr
 
-let decimal_scientific corr rest =
+let decimal_scientific corr =
   ((decimal_fractional |||
     (decimal_number >>: float_of_int)) +-
    cond "exponent delimiter" (fun c -> c = 'e' || c = 'E') 'e' ++
    decimal_number >>: fun (m, e) ->
      m *. Float.pow 10. (float_of_int e) (* FIXME *)
-   ) corr rest
+   ) corr
 
-let fractional corr rest =
+let floating_point corr =
   (decimal_fractional |||
-   decimal_scientific) corr rest
+   decimal_scientific) corr
 ----
 
 .tests
@@ -1230,6 +1279,400 @@ let fractional corr rest =
     List.iter (fun (input, output) ->
       assert_same_results Float.print
         [output, no_corr, []]
-        ((fractional +- eof "char") no_corr (input_of_string input)))
+        ((floating_point +- eof "char") no_corr (input_of_string input)))
 ) ;
 ----
+
+And finally the function that reads any immediate number:
+
+PerlImm: number
+[source,ml]
+----
+type perl_number = IntImm of integer | FloatImm of float
+let number =
+  (integer >>: fun x -> IntImm x) |||
+  (floating_point >>: fun x -> FloatImm x)
+----
+
+TODO: explain why sometime it's ok to get away with the other arguments and
+sometime we get the "some type variable can;t be generalized" error.
+
+===== Strings
+
+Although basic string notation are similar to what is implemented in many other
+languages, Perl strings are harder to parse because they require a context for
+the automatic quoting of lists, anything "not too complicated" inside curly
+braces or first operands of +=>+. In fact, any bare words that is neither a
+keyword not a function call is actually a string. To parse a bare word as a
+string you therefore need to know all possible function names, which is not
+going to happen before you are able to actually run that code. Consequently
+we will have a special type of token for bare words, remembering that they can
+be either function calls or strings.
+
+Other peculiarity: the seldom used v-string notation, which interpretation
+depends on its location and length (and, in theory, on perl versions).
+
+Also, despite one of our goal being to interpret strings as much as possible
+including in the presence of +eval+, we will make no such attempt in the first
+stage of parsing and will wait until much later to run the interpolation
+process (Remember: a single run of interpolation!)
+
+Let's start with the basics: the non interpolated string (aka. single quoted
+string in which no replacement take place).  This is basically any characters
+between single quotes, including new lines. The backslash can escape single
+quote and backslash, but any other backslash represents merely itself (ie.
+``\a'' encodes nothing more than a ``\'' followed by ``a'').
+
+.PerlImm: non-interpolated strings
+[source,ml]
+----
+type perl_string =
+    NoInterpStringImm of string
+  (* ...other perl string types... *)
+
+let backslash corr = item ~what:"backslash" '\\' corr
+let single_quote corr = item ~what:"single quote" '\'' corr
+
+let single_quoted_character corr =
+  ((backslash -+ backslash) |||
+   (backslash -+ single_quote) |||
+   (backslash -+ cond "escaped character" (fun c->
+     if PerlPersona.allow_any_escaped_char_in_single_quoted_string
+     then c <> '\\' && c <> '\''
+     else false) 'n') |||
+   (cond "character" (fun c ->
+     c <> '\\' && c <> '\'' &&
+     (if PerlPersona.allow_newlines_in_quoted_strings then true
+      else c <> '\n' (* actual newline not "\n" sequence *))) 'x')) corr
+
+let single_quoted_string corr =
+  (single_quote -+ repeat ~sep:nosep single_quoted_character +- single_quote >>:
+   fun s -> NoInterpStringImm (String.of_list s)) corr
+----
+
+With that module that we will use to personalize our parser behavior to mimic various Perl versions:
+
+.PerlPersona: some parameters to customize parser behavior
+[source,ml]
+----
+(* Temporary. *)
+let allow_any_escaped_char_in_single_quoted_string = true
+let allow_newlines_in_quoted_strings = true
+----
+
+TODO: replace this with a module that's set to a given implementation of the
+PERL_PERSONALITY signature.
+
+Interpolated strings, aka double quoted strings, differs in how the backslash is handled.
+There, many backslash sequences are recognized, and any unknown backslash sequence is an error.
+
+.other perl string types
+[source,ml]
+----
+| InterpStringImm of string
+----
+
+.PerlImm: interpolated strings
+[source,ml]
+----
+let double_quote corr = item ~what:"double quote" '"' corr
+
+let hexadecimal_digit_value corr =
+  (hexadecimal_digit >>: num_of_char) corr
+
+let double_quoted_character corr =
+  (backslash -+ (
+      backslash |||
+      single_quote |||
+      double_quote |||
+      (cond_map "escaped character" (function
+        | 'f' -> Some '\014'
+        | 'n' -> Some '\n'
+        | 'r' -> Some '\r'
+        | 't' -> Some '\t'
+        | _ -> None) 'a') |||
+      (item ~what:"hexadecimal prefix" 'x' -+
+       hexadecimal_digit_value ++ hexadecimal_digit_value >>:
+       fun (d1, d2) -> Char.chr (d1*16 + d2)) (* TODO: \cX for control characters *)
+   ) |||
+   cond "character" (fun c ->
+     c <> '"' && c <> '\\' &&
+     (if PerlPersona.allow_newlines_in_quoted_strings then true
+      else c <> '\n' (* actual newline not "\n" sequence *))) 'x') corr
+
+let double_quoted_string corr =
+  (double_quote -+ repeat ~sep:nosep double_quoted_character +- double_quote >>:
+   fun s -> InterpStringImm (String.of_list s)) corr
+----
+
+Notice the introduction of +cond_map+ which is a +cond+ that returns an
+optional value instead of a mere boolean:
+
+.Parsers: cond_map
+[source,ml]
+----
+let cond_map msg f x corr rest =
+  let res, chg = match rest with
+    | [] ->
+      [], [x, change_at corr EOF msg, rest]
+    | (tok, pos)::rest' ->
+      (match f tok with
+       | Some v -> [v, corr, rest'], []
+       | None   -> [], [x, change_at corr (Coord pos) msg, rest']) in
+  if BoundedSet.is_full corr || chg = [] then res
+  else List.rev_append res chg
+----
+
+from which we can write a simpler +cond+ parser:
+
+.Parsers: the cond parser, revisited
+[source,ml]
+----
+let cond msg f =
+  cond_map msg (fun c -> if f c then Some c else None)
+----
+
+TODO: in portia, an definition starting with same name a one that already
+exist, followed by a coma and something should replace it in the output instead
+of been appended to it.
+
+And finally the back-quoted string, which is for now exactly as the double
+quoted string:
+
+.other perl string types
+[source,ml]
+----
+| ExecedStringImm of string
+----
+
+.PerlImm: backquoted strings
+[source,ml]
+----
+let back_quote corr = item ~what:"back-quote" '`' corr
+
+let back_quoted_string corr =
+  (back_quote -+ repeat ~sep:nosep double_quoted_character +- back_quote >>:
+   fun s -> ExecedStringImm (String.of_list s)) corr
+----
+
+
+Version strings are sequence of integers separated by dot and usually prefixed
+by ``v'' (mandatory when there are at least 3 numbers -- when there are only
+two of course this is a fractional number).
+
+.PerlImm: v-strings
+[source,ml]
+----
+let vstring corr =
+  let dot = item ~what:"vstring separator" '.' in
+  (item ~what:"vstring prefix" 'v' -+ several ~sep:dot decimal_number |||
+   repeat ~sep:dot ~min:3 decimal_number >>: fun nums ->
+     let l = List.length nums in
+     let s = String.create l in
+     List.iteri (fun i n ->
+       s.[i] <- Char.chr n (* TODO: non ASCII characters *)) nums ;
+     NoInterpStringImm s
+   ) corr
+----
+
+Which we'd better write tests for:
+
+.PerlImm: printers
+[source,ml]
+----
+let print_perl_string fmt = function
+  | NoInterpStringImm s -> Printf.fprintf fmt "'%s'" s
+  | InterpStringImm s -> Printf.fprintf fmt "\"%s\"" s
+  | ExecedStringImm s -> Printf.fprintf fmt "`%s`" s
+  (* ...other printers for immediate strings... *)
+----
+
+.tests
+[source,ml]
+----
+"string immediate" >:: (
+  fun _ctx ->
+    assert_same_results print_perl_string
+      [NoInterpStringImm "glop", no_corr, []]
+      (single_quoted_string no_corr (input_of_string "'glop'"))
+) ;
+"vstring immediate" >:: (
+  fun _ctx ->
+    assert_same_results print_perl_string
+      [NoInterpStringImm "A", no_corr, []]
+      ((vstring +- eof "number") no_corr (input_of_string "v65")) ;
+    assert_same_results print_perl_string
+      [NoInterpStringImm "AB", no_corr, []]
+      ((vstring +- eof "number") no_corr (input_of_string "v65.66")) ;
+    assert_same_results print_perl_string
+      [NoInterpStringImm "ABC", no_corr, []]
+      ((vstring +- eof "number") no_corr (input_of_string "v65.66.67")) ;
+    assert_same_results print_perl_string
+      [NoInterpStringImm "ABC", no_corr, []]
+      ((vstring +- eof "number") no_corr (input_of_string "65.66.67")) ;
+) ;
+----
+
+Finally some special literals are predefined strings:
+
+.other perl string types
+[source,ml]
+----
+| FileStringImm
+| LineStringImm
+| PackageStringImm
+| SubStringImm
+| DataStringImm of string
+----
+
+.other printers for immediate strings
+[source,ml]
+----
+| FileStringImm -> Printf.fprintf fmt "__FILE__"
+| LineStringImm -> Printf.fprintf fmt "__LINE__"
+| PackageStringImm -> Printf.fprintf fmt "__PACKAGE__"
+| SubStringImm -> Printf.fprintf fmt "__SUB__"
+| DataStringImm _s -> Printf.fprintf fmt "__DATA__"
+----
+
+.PerlImm: special predefined string literals
+[source,ml]
+----
+let predefined_string corr =
+  ((string "__FILE__" >>: replace FileStringImm) |||
+   (string "__LINE__" >>: replace LineStringImm) |||
+   (string "__PACKAGE__" >>: replace PackageStringImm) |||
+   (string "__SUB__" >>: replace SubStringImm) |||
+   (string "__DATA__" -+ repeat ~sep:nosep anything +- eof "DATA" >>:
+    fun l -> DataStringImm (String.of_list l))) corr
+----
+
+with a few new combinators so trivial we couldn't have envisioned they'd turn useful:
+
+.Parsers: trivial parsers and utilities
+[source,ml]
+----
+let string s =
+  let rec loop i =
+    if i >= String.length s then return ()
+    else (
+      (item ~what:s s.[i]) -- (loop (i+1))
+    ) in
+  loop 0
+
+let replace x _ = x
+
+let anything corr = function
+  | [] -> []
+  | (tok,_pos)::rest' -> [tok, corr, rest']
+----
+
+Notice that +anything+ cannot really fail.
+
+Finally, here is our string parser:
+
+.PerlImm: string parser
+[source,ml]
+----
+let string_imm corr =
+  (single_quoted_string |||
+   double_quoted_string |||
+   vstring |||
+   predefined_string) corr
+----
+
+===== Barewords
+
+Half-strings half-keywoprds, ``barewords'' are the first monstrous beasts of
+Perl demonology.  Barewords are all word-like things that are not keywords.  In
+many contexts, barewords will be mere non-interpolated strings. Even an integer
+can be a bareword (between curly braces: in ``{42}'', +42+ is indeed a bareword
+that will be equivalent to the string +"42"+ not an integer - also before the
+auto-quoting operator +=>+ of course). Barewords are strings each time they are
+not function calls, which sometime can be determined only at runtime.
+
+Given almost anything is a bareword, parsing barewords is similar to parsing
+everything but barewords.
+
+First of all, like in many other programming language, names begin with a
+letter or an underscore and may optionally include any combination of letters,
+numbers, and underscores:
+
+.PerlWord: names
+[source,ml]
+----
+open Batteries
+open Parsers
+open PerlImm
+
+let name corr =
+  let first_char corr =
+    (letter ||| underscore) corr in
+  let char corr =
+    (letter ||| decimal_digit ||| underscore) corr in
+  (first_char ++ repeat_greedy ~sep:nosep char >>: fun (h,tl) ->
+    String.of_list (h::tl)) corr
+----
+
+with the general enough purpose funtions that we can add to the base library of
+parsers:
+
+.Parsers: basic character recognition parsers
+[source,ml]
+----
+let lowercase corr = range 'a' 'z' "lowercase" corr
+let uppercase corr = range 'A' 'Z' "uppercase" corr
+let letter corr = (lowercase ||| uppercase) corr
+----
+
+.tests
+[source,ml]
+----
+"valid names" >:: (
+  fun _ctx ->
+    [ "glop" ; "Glop" ; "_gl0p_" ] |>
+    List.iter (fun s ->
+      assert_same_results String.print
+        [s, no_corr, []]
+        (PerlWord.name no_corr (input_of_string s)))
+) ;
+"invalid names" >:: (
+  fun _ctx ->
+    [ "0glop" ; " v" ; "" ] |>
+    List.iter (fun s ->
+      assert_same_results String.print
+        []
+        (PerlWord.name no_corr (input_of_string s)))
+) ;
+----
+
+.PerlWord: barewords
+[source,ml]
+----
+(*let bareword corr =
+  *)
+----
+
+And to be able to extract bare words from the source we need to recognize the most
+basic of the structural components of a perl document:
+
+.PerlWord: structural parts
+[source,ml]
+----
+let whitespace corr =
+  let ws =
+    cond "space" (fun c ->
+      c = ' ' || c = '\t' || c = '\n') ' ' in
+  let eol = item ~what:"end of line" '\n' in
+  let comment =
+    item ~what:"comment" '#' +-
+    repeat ~sep:nosep (not eol) in
+  (repeat_greedy ~sep:nosep (ws ||| comment) >>: ignore) corr
+
+let keyword corr =
+  (string "if" |||
+   string "while" |||
+   string "do" |||
+   string "begin") corr
+----
+

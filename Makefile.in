@@ -4,7 +4,7 @@ PKG_NAME = parsercombinator
 
 # First extract the code from README
 GEN_SOURCES = BoundedSet.ml Corrections.ml Parsers.ml \
-							PerlImm.ml \
+							PerlPersona.ml PerlImm.ml PerlWord.ml \
 							test.ml
 GEN_FILES = $(GEN_SOURCES) README.html
 
