@@ -14,6 +14,7 @@
 *.db
 *.cgi
 *.log
+*.bak
 test.ml
 conf-check.old
 /Makefile
@@ -31,4 +32,5 @@ oUnit-tests*
 PerlImm.ml
 PerlPersona.ml
 PerlWord.ml
+PerlOp.ml
 tests.ml

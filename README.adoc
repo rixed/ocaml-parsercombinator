@@ -1539,12 +1539,13 @@ Finally some special literals are predefined strings:
 [source,ml]
 ----
 let predefined_string corr =
-  ((string "__FILE__" >>: replace FileStringImm) |||
-   (string "__LINE__" >>: replace LineStringImm) |||
+  ((string "__FILE__"    >>: replace FileStringImm) |||
+   (string "__LINE__"    >>: replace LineStringImm) |||
    (string "__PACKAGE__" >>: replace PackageStringImm) |||
-   (string "__SUB__" >>: replace SubStringImm) |||
-   (string "__DATA__" -+ repeat ~sep:nosep anything +- eof "DATA" >>:
-    fun l -> DataStringImm (String.of_list l))) corr
+   (string "__SUB__"     >>: replace SubStringImm) |||
+   (string "__DATA__" -+ repeat ~sep:nosep anything +- eof "DATA"
+                         >>: fun l ->
+                               DataStringImm (String.of_list l))) corr
 ----
 
 with a few new combinators so trivial we couldn't have envisioned they'd turn useful:
@@ -1581,9 +1582,9 @@ let string_imm corr =
    predefined_string) corr
 ----
 
-===== Barewords
+==== Words: Identifiers, Keywords, Barewords...
 
-Half-strings half-keywoprds, ``barewords'' are the first monstrous beasts of
+Half-strings half-keywords, ``barewords'' are the first monstrous beasts of
 Perl demonology.  Barewords are all word-like things that are not keywords.  In
 many contexts, barewords will be mere non-interpolated strings. Even an integer
 can be a bareword (between curly braces: in ``{42}'', +42+ is indeed a bareword
@@ -1605,6 +1606,7 @@ open Batteries
 open Parsers
 open PerlImm
 
+(* TODO: must add check not reserved word *)
 let name corr =
   let first_char corr =
     (letter ||| underscore) corr in
@@ -1612,6 +1614,9 @@ let name corr =
     (letter ||| decimal_digit ||| underscore) corr in
   (first_char ++ repeat_greedy ~sep:nosep char >>: fun (h,tl) ->
     String.of_list (h::tl)) corr
+
+let fully_qualified_name corr =
+  (several ~sep:(string "::") name) corr
 ----
 
 with the general enough purpose funtions that we can add to the base library of
@@ -1646,6 +1651,24 @@ let letter corr = (lowercase ||| uppercase) corr
 ) ;
 ----
 
+Let's now call ``identifier'' any name with a prefix:
+
+.PerlWord: identifiers
+[source,ml]
+----
+type identifier_sigil = NoSigil
+                      | ScalarSigil | ArraySigil | HashSigil
+type identifier = identifier_sigil * string
+
+let identifier_sigil corr =
+  ((item ~what:"scalar sigil" '$' >>: replace ScalarSigil) |||
+   (item ~what:"array sigil" '@'  >>: replace ArraySigil)  |||
+   (item ~what:"hash sigil" '%'   >>: replace HashSigil)) corr
+
+let identifier corr =
+  (optional ~def:NoSigil identifier_sigil ++ name) corr
+----
+
 .PerlWord: barewords
 [source,ml]
 ----
@@ -1666,7 +1689,8 @@ let whitespace corr =
   let eol = item ~what:"end of line" '\n' in
   let comment =
     item ~what:"comment" '#' +-
-    repeat ~sep:nosep (not eol) in
+    repeat_greedy ~sep:nosep (not eol) +-
+    eol in
   (repeat_greedy ~sep:nosep (ws ||| comment) >>: ignore) corr
 
 let keyword corr =
@@ -1676,3 +1700,68 @@ let keyword corr =
    string "begin") corr
 ----
 
+==== Operators
+
+There are two classes of operators: those which coerce their arguments into
+numbers and those which coerce their arguments (note that the boolean operators
+belongs to this category since booleans are just numbers in Perl).  Therefore
+all operators apply to scalars. Also, all but the boolean negations are binary
+operator, while the boolean negation is unary.  We will not consider the
+ternary operator an operator but a keyword. 
+
+Notice that +cmp+ is a string operator, so that +9 cmp 10+ returns
+counter-intuitively +1+ since the character '9' is ``greater'' than the
+character '1'.
+
+Here we define only one type for all operators, which context (string or
+number) is given by a function, instead of defining two levels of constructors,
+in order to shorten the code - and the encoding of values.
+
+.PerlOp: types
+[source,ml]
+----
+open Parsers
+
+type operator = StringOpEq | StringOpGt | StringOpLt
+              | StringOpNe | StringOpCmp | StringOpDot
+              | NumberOpEq | NumberOpGt | NumberOpLt
+              | NumberOpNe | NumberOpGE | NumberOpLE
+              | OpAdd | OpSub | OpMul | OpDiv
+              | OpExp | OpMod
+
+type evaluation_context = StringContext | NumberContext
+                        (* ...other evaluation contexts... *)
+
+let context_of_operator = function
+  | StringOpEq | StringOpGt | StringOpLt
+  | StringOpNe | StringOpCmp | StringOpDot ->
+    StringContext
+  | _ ->
+    NumberContext
+----
+
+Which parsing is trivial:
+
+.PerlOp: parsers
+[source,ml]
+----
+let operator corr =
+  ((string "eq"  >>: replace StringOpEq) |||
+   (string "gt"  >>: replace StringOpGt) |||
+   (string "lt"  >>: replace StringOpLt) |||
+   (string "ne"  >>: replace StringOpNe) |||
+   (string "cmp" >>: replace StringOpCmp) |||
+   (string "."   >>: replace StringOpDot) |||
+   (string "=="  >>: replace NumberOpEq) |||
+   (string ">"   >>: replace NumberOpGt) |||
+   (string "<"   >>: replace NumberOpLt) |||
+   (string "!="  >>: replace NumberOpNe) |||
+   (string ">="  >>: replace NumberOpGE) |||
+   (string "<="  >>: replace NumberOpLE) |||
+   (string "+"   >>: replace OpAdd) |||
+   (string "-"   >>: replace OpSub) |||
+   (string "*"   >>: replace OpMul) |||
+   (string "/"   >>: replace OpDiv) |||
+   (string "**"  >>: replace OpExp) |||
+   (string "%"   >>: replace OpMod)) corr
+----
