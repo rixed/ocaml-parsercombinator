@@ -33,4 +33,6 @@ PerlImm.ml
 PerlPersona.ml
 PerlWord.ml
 PerlOp.ml
+PerlTerm.ml
+PerlStmt.ml
 tests.ml

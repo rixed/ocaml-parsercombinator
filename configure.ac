@@ -1,4 +1,4 @@
-AC_INIT(asn1,0.1)
+AC_INIT(parsercombinator,0.1)
 m4_include([m4/ocaml.m4])
 
 AC_PROG_CC

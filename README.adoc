@@ -276,7 +276,7 @@ is that it explores forcing a success in case the check fails.
 let check msg p corr rest =
   match p corr rest with
   | [] -> fail_or_maybe_not msg () corr rest
-  | _ -> [(), corr, rest]
+  | _ -> return () corr rest
 ----
 
 Another parser that will prove useful (despite contributing no value to the
@@ -724,6 +724,7 @@ or one occurrence of +p+:
 [source,ml]
 ----
 let optional ~def p = p ||| return def
+let optional_greedy ~def p = (p +- check "??3" (not p)) ||| return def
 ----
 
 The +repeat+ combinator is a swiss-army knife for all variants of repetitions,
@@ -782,14 +783,14 @@ val f : ?sep:int -> 'a -> 'a = <fun>
 Therefore we merely provide this short do-nothing constant parser to be used
 when there is no separator:
 
-.Parsers: nosep
+.Parsers: none
 [source,ml]
 ----
-let nosep corr = return () corr
+let none corr = return () corr
 ----
 
 You may be surprised by this notation, either because you were expecting +let
-nosep corr rest = return () corr rest+ or the shorter +let nosep = return ()+.
+none corr rest = return () corr rest+ or the shorter +let none = return ()+.
 Refer to the appendix about type generalization if that is the case (TODO: link).
 
 We can easily define the greedy version of +repeat+ (that is, a version that
@@ -809,14 +810,12 @@ returning +[]+:
 .Parsers: greedy repetition
 [source,ml]
 ----
-let repeat_greedy ~sep ?min ?max p =
-  let several_greedy min ?max p =
-    repeat ~sep ~min ?max p +- check "extraneous" (not (sep -+ p)) in
+let rec repeat_greedy ~sep ?min ?max p =
   match min with
   | None | Some 0 ->
-    several_greedy 1 ?max p ||| (check "extraneous" (not p) >>: fun () -> [])
-  | Some min ->
-    several_greedy min ?max p
+    repeat_greedy ~sep ~min:1 ?max p ||| (check "extraneous" (not p) >>: fun () -> [])
+  | min ->
+    repeat ~sep ?min ?max p +- (check "extraneous" (not (sep -+ p)) >>: fun _ -> [])
 ----
 
 .tests
@@ -852,22 +851,26 @@ let repeat_greedy ~sep ?min ?max p =
       assert_ok ~sep ~min:2 ~max:2 rest
         [['a';'a'],     no_corr, drop 2] in
     let aaab = input_of_string "aaab"
-    and a_a_a_b = input_of_string "a-a-a-b" in
-    test_with_sep nosep      0 aaab ;
-    test_with_sep (item '-') 1 a_a_a_b ;
-    assert_ok ~greedy:true ~sep:nosep aaab
+    and a_a_a_b = input_of_string "a_a_a_b"
+    and _a_a_a_b = input_of_string "_a_a_a_b" in
+    test_with_sep none       0 aaab ;
+    test_with_sep (item '_') 1 a_a_a_b ;
+    assert_ok ~greedy:true ~sep:none aaab
       [['a';'a';'a'], no_corr, List.drop 3 aaab] ;
-    assert_ok ~greedy:true ~sep:(item '-') a_a_a_b
-      [['a';'a';'a'], no_corr, List.drop 5 a_a_a_b]
+    assert_ok ~greedy:true ~sep:(item '_') a_a_a_b
+      [['a';'a';'a'], no_corr, List.drop 5 a_a_a_b] ;
+    (* Do not allow a separator at start *)
+    assert_ok ~greedy:true ~sep:(item '_') _a_a_a_b
+      [[], no_corr, _a_a_a_b]
 ) ;
 "repetition: simplest failure" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
       []
-      (repeat ~sep:nosep ~min:1 (item 'a') no_corr (input_of_string "zaab")) ;
+      (repeat ~sep:none ~min:1 (item 'a') no_corr (input_of_string "zaab")) ;
     assert_same_results (List.print Char.print)
       []
-      (repeat_greedy ~sep:nosep ~min:1 (item 'a') no_corr (input_of_string "zaab"))
+      (repeat_greedy ~sep:none ~min:1 (item 'a') no_corr (input_of_string "zaab"))
 ) ;
 "repetition: missing separator" >:: (
   fun _ctx ->
@@ -882,10 +885,10 @@ let repeat_greedy ~sep ?min ?max p =
   fun _ctx ->
     assert_same_results (List.print Char.print)
       []
-      (repeat ~sep:nosep ~min:2 (item 'a') no_corr (input_of_string "baab")) ;
+      (repeat ~sep:none ~min:2 (item 'a') no_corr (input_of_string "baab")) ;
     assert_same_results (List.print Char.print)
       []
-      (repeat_greedy ~sep:nosep ~min:2 (item 'a') no_corr (input_of_string "baab"))
+      (repeat_greedy ~sep:none ~min:2 (item 'a') no_corr (input_of_string "baab"))
 ) ;
 ----
 
@@ -910,7 +913,7 @@ With all these new combinators, more interesting tests can be devised:
       let i = Char.code c - Char.code '0' in
       assert_bool "not a digit" (i >= 0 && i <= 9) ;
       (* match a sequence of i zeros *)
-      times ~sep:nosep i (item '0')) in
+      times ~sep:none i (item '0')) in
     let rest1 = input_of_string "105"
     and rest2 = input_of_string "100"
     and rest3 = input_of_string "30005"
@@ -934,12 +937,12 @@ With all these new combinators, more interesting tests can be devised:
 
 === Type generalization
 
-Let's get back to why we haven't defined +nosep+ simply as +let nosep = return
+Let's get back to why we haven't defined +none+ simply as +let none = return
 ()+, using automatic curryfication (TODO: link) to lighten the syntax:
 
 ----
-# let nosep = return ();;
-              ^^^^^^^^^
+# let none = return ();;
+             ^^^^^^^^^
 Error: The type of this expression, '_a -> '_b -> (unit * '_a * '_b) list,
        contains type variables that cannot be generalized
 ----
@@ -1057,13 +1060,56 @@ let print_result print_input print_coord print_output fmt (x, corr, rest) =
 
 == Parsing Perl
 
-Now let's try to write parsers for Perl immediate values.
+Even if we've chosen a different strategy to parse Perl than perl itself,
+staying close from perl own parser will guide us through its dense syntax, will
+help us be exhaustive and last but not least will provide us with names for the
+various syntactic constructs. There is no other somewhat formal description of
+the grammar anyway.  Amusingly, the Perl official documentation refers to
+``expressions'' and ``statements'' in many places but never defines those.
+
+Therefore, with little edition, here is the _yacc_ grammar from +perly.y+:
+
+Perl modules (and code blocks) consist of a sequence of `statements`:
+
+- stmtseq: stmtseq fullstmt
+
+- fullstmt: LABEL* barestmt
+- barestmt: PLUGSTMT | FORMAT ... | SUB ... | PACKAGE ... | USE ...
+  | IF (...) ... | UNLESS ... | GIVEN ... | WHEN... | DEFAULT... | WHILE...
+  | UNTIL ... | FOR ... | block ... | sideff ';' | ';'
+
+where sideff is anything that can have a side effect:
+
+- sideff: expr | expr IF ... | expr UNLESS ... | expr WHILE ... | expr UNTIL ...
+  | expr FOR ... | expr when ...
+
+- expr: expr '&&' expr | expr '||' expr | listexpr
+- listexpr: term | listexpr ',' term || listexpr ','
+
+and a term being, intuitively, anything with a value:
+
+- term: termunop | termbinopt | termternaryop | anonymous immediate array, hash or function
+  | DO filename | DO block | '\' term | MY ... | LOCAL ... | '(' term ')' | QWLIST | '(' ')'
+  | scalar | '*' WORD | '%' WORD | '@' WORD | '$#' WORD | '$#' '{' term '}' | subscript
+  | slices | kvslices | '&' WORD ( '(' ( expr )? ')' )? | subname optlistexpr
+  '@' '{' term '}' | and friends | GOTO | LAST | DUMP | and friends | REQUIRE term?
+  | YADAYADA | listop | ...
+- termunop: all kind of unary operators applied to terms
+- termbinopt: all kind of binary operators applied to terms
+- termternaryop: term '?' term ':' term
+
+We will divide this in four modules, bottom to top:
+
+- PerlImm,
+- PerlTerms,
+- PerlStmts and
+- PerlModules.
 
 === Immediate values
 
-==== Scalars
+Now let's try to write parsers for Perl simplest of immediate values, scalars.
 
-===== Numbers
+==== Numbers
 
 What OCaml type to encode perl integers?
 
@@ -1105,7 +1151,7 @@ let num_of_char c =
   else invalid_arg "c"
 
 let unsigned_decimal_number corr rest =
-  let digits corr = several ~sep:nosep decimal_digit corr in
+  let digits corr = several ~sep:none decimal_digit corr in
   (non_zero_decimal_digit +-
    optional ~def:' ' underscore ++
    optional ~def:[] (several ~sep:underscore digits) >>:
@@ -1115,8 +1161,8 @@ let unsigned_decimal_number corr rest =
        c * 10 + num_of_char digit) c digits) 0 ([first]::next)) corr rest
 
 let signed neg p corr =
-  (p|||
-   item ~what:"sign" '+' -+ p |||
+  (p                                     |||
+   item ~what:"sign" '+' -+ p            |||
    (item ~what:"sign" '-' -+ p >>: neg)) corr
 
 let decimal_number corr =
@@ -1133,7 +1179,7 @@ mandatory and '0x' for instance is a valid immediate (representing zero of cours
 [source,ml]
 ----
 let non_decimal_integer base prefix digit corr =
-  let digits corr = several ~sep:nosep digit corr in
+  let digits corr = several ~sep:none digit corr in
   (prefix -+ repeat ~sep:underscore digits >>:
      List.fold_left (fun c digits ->
        List.fold_left (fun c digit ->
@@ -1176,8 +1222,8 @@ Finally, this parser can parse all kind of Perl immediate integers:
 [source,ml]
 ----
 let integer corr =
-  (decimal_number |||
-   octal_number |||
+  (decimal_number     |||
+   octal_number       |||
    hexadecimal_number |||
    binary_number) corr
 ----
@@ -1233,7 +1279,7 @@ not both.
 [source,ml]
 ----
 let fractional_part inv_base digit =
-  let digits corr = several ~sep:nosep digit corr in
+  let digits corr = several ~sep:none digit corr in
   several ~sep:underscore digits >>: fun digits ->
     List.fold_left (fun c_scale digits ->
       List.fold_left (fun (c, scale) digit ->
@@ -1244,9 +1290,9 @@ let fractional_part inv_base digit =
 let unsigned_decimal_fractional corr =
   let dot corr = item ~what:"fractional dot" '.' corr in
   ((unsigned_decimal_number +- dot ++ fractional_part 0.1 decimal_digit) |||
-   (return 0 +- dot ++ fractional_part 0.1 decimal_digit) |||
+   (return 0 +- dot ++ fractional_part 0.1 decimal_digit)                |||
    (unsigned_decimal_number +- dot ++ return 0.) >>:
-   fun (n, p) -> float_of_int n +. p
+       fun (n, p) -> float_of_int n +. p
   ) corr
 
 let decimal_fractional corr =
@@ -1285,19 +1331,20 @@ let floating_point corr =
 
 And finally the function that reads any immediate number:
 
-PerlImm: number
+.PerlImm: number
 [source,ml]
 ----
-type perl_number = IntImm of integer | FloatImm of float
-let number =
-  (integer >>: fun x -> IntImm x) |||
-  (floating_point >>: fun x -> FloatImm x)
+type number_imm = IntImm of integer
+                | FloatImm of float
+let number_imm corr =
+  ((integer        >>: fun x -> IntImm x) |||
+   (floating_point >>: fun x -> FloatImm x)) corr
 ----
 
 TODO: explain why sometime it's ok to get away with the other arguments and
 sometime we get the "some type variable can;t be generalized" error.
 
-===== Strings
+==== Strings
 
 Although basic string notation are similar to what is implemented in many other
 languages, Perl strings are harder to parse because they require a context for
@@ -1326,7 +1373,7 @@ quote and backslash, but any other backslash represents merely itself (ie.
 .PerlImm: non-interpolated strings
 [source,ml]
 ----
-type perl_string =
+type string_imm =
     NoInterpStringImm of string
   (* ...other perl string types... *)
 
@@ -1334,7 +1381,7 @@ let backslash corr = item ~what:"backslash" '\\' corr
 let single_quote corr = item ~what:"single quote" '\'' corr
 
 let single_quoted_character corr =
-  ((backslash -+ backslash) |||
+  ((backslash -+ backslash)    |||
    (backslash -+ single_quote) |||
    (backslash -+ cond "escaped character" (fun c->
      if PerlPersona.allow_any_escaped_char_in_single_quoted_string
@@ -1346,7 +1393,7 @@ let single_quoted_character corr =
       else c <> '\n' (* actual newline not "\n" sequence *))) 'x')) corr
 
 let single_quoted_string corr =
-  (single_quote -+ repeat ~sep:nosep single_quoted_character +- single_quote >>:
+  (single_quote -+ repeat ~sep:none single_quoted_character +- single_quote >>:
    fun s -> NoInterpStringImm (String.of_list s)) corr
 ----
 
@@ -1382,7 +1429,7 @@ let hexadecimal_digit_value corr =
 
 let double_quoted_character corr =
   (backslash -+ (
-      backslash |||
+      backslash    |||
       single_quote |||
       double_quote |||
       (cond_map "escaped character" (function
@@ -1401,7 +1448,7 @@ let double_quoted_character corr =
       else c <> '\n' (* actual newline not "\n" sequence *))) 'x') corr
 
 let double_quoted_string corr =
-  (double_quote -+ repeat ~sep:nosep double_quoted_character +- double_quote >>:
+  (double_quote -+ repeat ~sep:none double_quoted_character +- double_quote >>:
    fun s -> InterpStringImm (String.of_list s)) corr
 ----
 
@@ -1451,7 +1498,7 @@ quoted string:
 let back_quote corr = item ~what:"back-quote" '`' corr
 
 let back_quoted_string corr =
-  (back_quote -+ repeat ~sep:nosep double_quoted_character +- back_quote >>:
+  (back_quote -+ repeat ~sep:none double_quoted_character +- back_quote >>:
    fun s -> ExecedStringImm (String.of_list s)) corr
 ----
 
@@ -1480,7 +1527,7 @@ Which we'd better write tests for:
 .PerlImm: printers
 [source,ml]
 ----
-let print_perl_string fmt = function
+let print_string_imm fmt = function
   | NoInterpStringImm s -> Printf.fprintf fmt "'%s'" s
   | InterpStringImm s -> Printf.fprintf fmt "\"%s\"" s
   | ExecedStringImm s -> Printf.fprintf fmt "`%s`" s
@@ -1492,22 +1539,22 @@ let print_perl_string fmt = function
 ----
 "string immediate" >:: (
   fun _ctx ->
-    assert_same_results print_perl_string
+    assert_same_results print_string_imm
       [NoInterpStringImm "glop", no_corr, []]
       (single_quoted_string no_corr (input_of_string "'glop'"))
 ) ;
 "vstring immediate" >:: (
   fun _ctx ->
-    assert_same_results print_perl_string
+    assert_same_results print_string_imm
       [NoInterpStringImm "A", no_corr, []]
       ((vstring +- eof "number") no_corr (input_of_string "v65")) ;
-    assert_same_results print_perl_string
+    assert_same_results print_string_imm
       [NoInterpStringImm "AB", no_corr, []]
       ((vstring +- eof "number") no_corr (input_of_string "v65.66")) ;
-    assert_same_results print_perl_string
+    assert_same_results print_string_imm
       [NoInterpStringImm "ABC", no_corr, []]
       ((vstring +- eof "number") no_corr (input_of_string "v65.66.67")) ;
-    assert_same_results print_perl_string
+    assert_same_results print_string_imm
       [NoInterpStringImm "ABC", no_corr, []]
       ((vstring +- eof "number") no_corr (input_of_string "65.66.67")) ;
 ) ;
@@ -1539,11 +1586,11 @@ Finally some special literals are predefined strings:
 [source,ml]
 ----
 let predefined_string corr =
-  ((string "__FILE__"    >>: replace FileStringImm) |||
-   (string "__LINE__"    >>: replace LineStringImm) |||
+  ((string "__FILE__"    >>: replace FileStringImm)    |||
+   (string "__LINE__"    >>: replace LineStringImm)    |||
    (string "__PACKAGE__" >>: replace PackageStringImm) |||
-   (string "__SUB__"     >>: replace SubStringImm) |||
-   (string "__DATA__" -+ repeat ~sep:nosep anything +- eof "DATA"
+   (string "__SUB__"     >>: replace SubStringImm)     |||
+   (string "__DATA__" -+ repeat ~sep:none anything +- eof "DATA"
                          >>: fun l ->
                                DataStringImm (String.of_list l))) corr
 ----
@@ -1578,48 +1625,69 @@ Finally, here is our string parser:
 let string_imm corr =
   (single_quoted_string |||
    double_quoted_string |||
-   vstring |||
+   vstring              |||
    predefined_string) corr
 ----
+
+==== Any scalar values
+
+Here is the final parser for any scalar value, including ``undef'' which is the
+default value for uninitialized scalars and which can also be mentioned
+literally:
+
+.PerlImm: final scalar parser
+[source,ml]
+----
+type scalar_imm = UndefImm
+                | StringImm of string_imm
+                | NumberImm of number_imm
+let scalar_imm corr =
+  ((string_imm     >>: fun s -> StringImm s) |||
+   (number_imm     >>: fun n -> NumberImm n) |||
+   (string "undef" >>: replace UndefImm))  corr
+----
+
+=== Terms
 
 ==== Words: Identifiers, Keywords, Barewords...
 
 Half-strings half-keywords, ``barewords'' are the first monstrous beasts of
 Perl demonology.  Barewords are all word-like things that are not keywords.  In
-many contexts, barewords will be mere non-interpolated strings. Even an integer
-can be a bareword (between curly braces: in ``{42}'', +42+ is indeed a bareword
-that will be equivalent to the string +"42"+ not an integer - also before the
-auto-quoting operator +=>+ of course). Barewords are strings each time they are
-not function calls, which sometime can be determined only at runtime.
+many contexts, barewords will be mere unquoted non-interpolated strings. Even
+an integer can be a bareword (between curly braces: in ``{42}'', +42+ is indeed
+a bareword that will be equivalent to the string +"42"+ not an integer - also
+before the auto-quoting operator +=>+ of course). Barewords are strings each
+time they are not function calls, which sometime can be determined only at
+runtime.
 
-Given almost anything is a bareword, parsing barewords is similar to parsing
-everything but barewords.
+Given barewords are defined to be any name that's not a keyword nor a function
+call, we must first define names, then keywords. We will leave function
+calls for later.
 
 First of all, like in many other programming language, names begin with a
 letter or an underscore and may optionally include any combination of letters,
 numbers, and underscores:
 
-.PerlWord: names
+.PerlTerm: names
 [source,ml]
 ----
 open Batteries
 open Parsers
 open PerlImm
 
-(* TODO: must add check not reserved word *)
 let name corr =
   let first_char corr =
     (letter ||| underscore) corr in
   let char corr =
     (letter ||| decimal_digit ||| underscore) corr in
-  (first_char ++ repeat_greedy ~sep:nosep char >>: fun (h,tl) ->
+  (first_char ++ repeat_greedy ~sep:none char >>: fun (h,tl) ->
     String.of_list (h::tl)) corr
 
 let fully_qualified_name corr =
   (several ~sep:(string "::") name) corr
 ----
 
-with the general enough purpose funtions that we can add to the base library of
+with the general enough purpose functions that we can add to the base library of
 parsers:
 
 .Parsers: basic character recognition parsers
@@ -1639,7 +1707,7 @@ let letter corr = (lowercase ||| uppercase) corr
     List.iter (fun s ->
       assert_same_results String.print
         [s, no_corr, []]
-        (PerlWord.name no_corr (input_of_string s)))
+        (PerlTerm.name no_corr (input_of_string s)))
 ) ;
 "invalid names" >:: (
   fun _ctx ->
@@ -1647,69 +1715,228 @@ let letter corr = (lowercase ||| uppercase) corr
     List.iter (fun s ->
       assert_same_results String.print
         []
-        (PerlWord.name no_corr (input_of_string s)))
+        (PerlTerm.name no_corr (input_of_string s)))
 ) ;
 ----
 
 Let's now call ``identifier'' any name with a prefix:
 
-.PerlWord: identifiers
+.PerlTerm: identifiers
 [source,ml]
 ----
 type identifier_sigil = NoSigil
-                      | ScalarSigil | ArraySigil | HashSigil
+                      | ScalarSigil | ArraySigil
+                      | HashSigil | FunctionSigil
 type identifier = identifier_sigil * string
 
 let identifier_sigil corr =
-  ((item ~what:"scalar sigil" '$' >>: replace ScalarSigil) |||
-   (item ~what:"array sigil" '@'  >>: replace ArraySigil)  |||
-   (item ~what:"hash sigil" '%'   >>: replace HashSigil)) corr
+  ((item ~what:"scalar sigil" '$'   >>: replace ScalarSigil) |||
+   (item ~what:"array sigil" '@'    >>: replace ArraySigil)  |||
+   (item ~what:"hash sigil" '%'     >>: replace HashSigil)   |||
+   (item ~what:"function sigil" '&' >>: replace FunctionSigil)) corr
 
 let identifier corr =
   (optional ~def:NoSigil identifier_sigil ++ name) corr
 ----
 
-.PerlWord: barewords
+Now let's try to recognize keywords:
+
+.PerlTerm: keywords
 [source,ml]
 ----
-(*let bareword corr =
-  *)
-----
-
-And to be able to extract bare words from the source we need to recognize the most
-basic of the structural components of a perl document:
-
-.PerlWord: structural parts
-[source,ml]
-----
-let whitespace corr =
-  let ws =
-    cond "space" (fun c ->
-      c = ' ' || c = '\t' || c = '\n') ' ' in
-  let eol = item ~what:"end of line" '\n' in
-  let comment =
-    item ~what:"comment" '#' +-
-    repeat_greedy ~sep:nosep (not eol) +-
-    eol in
-  (repeat_greedy ~sep:nosep (ws ||| comment) >>: ignore) corr
-
 let keyword corr =
-  (string "if" |||
-   string "while" |||
-   string "do" |||
-   string "begin") corr
+  (string "if" ||| string "unless"   |||
+   string "while" ||| string "until" |||
+   string "else") corr
 ----
 
-==== Operators
+So that finally we can tell a bareword from a keyword:
 
-There are two classes of operators: those which coerce their arguments into
-numbers and those which coerce their arguments (note that the boolean operators
-belongs to this category since booleans are just numbers in Perl).  Therefore
-all operators apply to scalars. Also, all but the boolean negations are binary
-operator, while the boolean negation is unary.  We will not consider the
-ternary operator an operator but a keyword. 
+.PerlTerm: barewords
+[source,ml]
+----
+let bareword corr =
+  (check "not a keyword" (not keyword) -+ name) corr
+----
 
-Notice that +cmp+ is a string operator, so that +9 cmp 10+ returns
+.other term types
+[source,ml]
+----
+| Bareword of string
+----
+
+
+==== Lists
+
+Beside immediate scalar values and barewords, a term can also be a list,
+which is recursively made of other terms.
+
+List parsing is, as many Perl things, inconsequential. If the documentation
+insists that ``parentheses do not make lists, comas do'', the empty list in
+nonetheless represented as +()+.  But it is true that +(1,2,(3,4))+ is truly
+just +(1,2,3,4)+ (the second pair of parentheses does not introduce a sublist),
+as +(1,(),2)+ is just +(1,2)+, and that unless ordering of evaluation commands
+otherwise +(1,2,3)+ is equivalent as +1,2,3+.
+
+Notice that any coma can be an auto-quoting variant +=>+ instead, which (tries
+to) make the left item a string, and that the final coma (or auto-quoting
+separator) is optional.
+
+Given the recursive nature of lists we will define the +list+ parser and the
++list_item+ parser as mutually recursive, and will let the +term+ and
++whitespace+ parsers definition for later:
+
+.PerlTerm: list item
+[source,ml]
+----
+let left_parenth corr =
+  item ~what:"left parenthesis" '(' corr
+let right_parenth corr =
+  item ~what:"right parenthesis" ')' corr
+let coma corr =
+  item ~what:"coma" ',' corr
+let autoquoting_coma corr =
+  string "=>" corr
+
+let rec list_item corr =
+  (((term >>: List.singleton) |||
+    (left_parenth -+ list +- right_parenth))
+   +- opt_whitespace ++
+   ((coma >>: replace false) |||
+    (autoquoting_coma >>: replace true)) +-
+   opt_whitespace >>:
+   function [Bareword w], true -> [ScalarImm (StringImm (NoInterpStringImm w))]
+          | x, _ -> x) corr
+----
+
+Notice that the only case where the automatic quotation serves any purpose is when it's present after a bareword.
+
+Also, this +list_item+ parser always return a list (either with many
+terms as returned by the +list+ parser or with a single element if there
+was actually no sublist). All these sublists will have to be flattened in the
++list+ parser. That's definitively not the most efficient way to write this
+parser but it makes it more readable.
+
+Notice also that to avoid infinite left recursion we must make sure of the
+presence of an opening parenthesis before recursing into +list+. The list
+parser itself will look for the optional presence of the parenthesis, just so
+that we can call it to parse a top-level lists.
+
+The +optional_greedy+ above is to avoid terminating a parser on an optional
+parser, which results in two possible result systematically, which the caller
+will not necessarily reduce if the next parser starts with the same optional
+parser. Indeed,
+
+[source,ml]
+----
+optional p ++ optional p
+----
+
+would yield 2 equivalent results.
+
+Given this +list_item+, now we can add the +list+ parser that will return parsed (into an OCaml list of
+terms) with:
+
+.PerlTerm: lists
+[source,ml]
+----
+and list corr =
+  (((left_parenth -+ repeat ~sep:none list_item +- right_parenth) |||
+    (repeat ~sep:none list_item)                                  |||
+    empty_list) >>: List.flatten) corr
+and empty_list corr =
+  ((left_parenth -- right_parenth) >>: replace []) corr
+----
+
+That we cannot test until we define +term+ and +whitespace+.
+
+==== Terms and whitespaces
+
+White spaces are easy, we just have to remember that new lines and comments also
+act as white spaces:
+
+.PerlTerm: whitespaces
+[source,ml]
+----
+and whitespace corr =
+  let ws corr =
+    (cond "space" (fun c ->
+      c = ' ' || c = '\t' || c = '\n') ' ') corr in
+  let eol corr =
+    (item ~what:"end of line" '\n') corr  in
+  let comment corr =
+    (item ~what:"comment" '#' +-
+     repeat_greedy ~sep:none (not eol) +-
+     eol) corr in
+  (repeat_greedy ~sep:none (ws ||| comment)) corr
+and opt_whitespace corr =
+  optional_greedy ~def:[] whitespace corr
+----
+
+Notice we read greedily the whitespaces because we want to avoid a +whitespace
+-- whitespace+ ambiguity and that we also have an +optional_greedy+ for the same
+reason.
+
+Terms will demand a little bit more work, but we already have an idea of how it should look like:
+
+.PerlTerm: finally, a term
+[source,ml]
+----
+and term corr =
+  ((scalar_imm >>: fun e -> ScalarImm e)
+   ||| (bareword   >>: fun e -> Bareword e)
+   (* ...other term parsers... *)) corr
+----
+
+==== Anonymous arrays
+
+Array references are really nothing more than a list within brackets:
+
+.PerlTerm: anonymous arrays
+[source,ml]
+----
+let left_bracket corr =
+  item ~what:"left bracket" '[' corr
+let right_bracket corr =
+  item ~what:"right bracket" ']' corr
+
+let anonymous_array corr =
+  (left_bracket -- opt_whitespace -+
+   list +-
+   opt_whitespace +- right_bracket) corr
+----
+
+==== Anonymous Hashes
+
+And the same goes for anonymous hashes, with curly brackets:
+
+.PerlTerm: anonymous hashes
+[source,ml]
+----
+let left_curly_bracket corr =
+  item ~what:"left curly bracket" '{' corr
+let right_curly_bracket corr =
+  item ~what:"right curly bracket" '}' corr
+
+let anonymous_hash corr =
+  (left_curly_bracket -- opt_whitespace -+
+   list +-
+   opt_whitespace +- right_curly_bracket) corr
+----
+
+==== Operations
+
+There are, mostly, two classes of operators: those which coerce their arguments
+into strings and those which coerce their arguments into numbers (note that the
+`boolean' operators belong to this category since booleans are just numbers in
+Perl).  But there are exceptions of course: the _DOR_ operator (defined-or,
+``//'') and the assignment operator do not force a context on their arguments,
+for instance, and works not only for scalars. The ternary operator coerce only
+its predicate but neither its consequent nor its alternative.
+
+Notice that, from the grammar standpoint, the assignment is a binary operator.
+
+Notice also that +cmp+ is a string operator, so that +9 cmp 10+ returns
 counter-intuitively +1+ since the character '9' is ``greater'' than the
 character '1'.
 
@@ -1717,51 +1944,164 @@ Here we define only one type for all operators, which context (string or
 number) is given by a function, instead of defining two levels of constructors,
 in order to shorten the code - and the encoding of values.
 
-.PerlOp: types
+.PerlTerm: binary operators
 [source,ml]
 ----
 open Parsers
 
-type operator = StringOpEq | StringOpGt | StringOpLt
-              | StringOpNe | StringOpCmp | StringOpDot
-              | NumberOpEq | NumberOpGt | NumberOpLt
-              | NumberOpNe | NumberOpGE | NumberOpLE
-              | OpAdd | OpSub | OpMul | OpDiv
-              | OpExp | OpMod
+type binop = EqOpString | GtOpString | LtOpString
+           | NeOpString | CmpOpString | DotOpString
+           | EqOpNumber | GtOpNumber | LtOpNumber
+           | NeOpNumber | GEOpNumber | LEOpNumber
+           | AddOp | SubOp | MulOp | DivOp
+           | ExpOp | ModOp | AssignOp
+           | LShiftOp | RShiftOp
+           | BitAndOp | BitOrOp | RangeOp
+           | AndOp | OrOp | DefOrOp (* // *)
+           | MatchOp (* =~ *)
 
-type evaluation_context = StringContext | NumberContext
-                        (* ...other evaluation contexts... *)
-
-let context_of_operator = function
-  | StringOpEq | StringOpGt | StringOpLt
-  | StringOpNe | StringOpCmp | StringOpDot ->
-    StringContext
-  | _ ->
-    NumberContext
+let binop corr =
+  ((string "eq"  >>: replace EqOpString)  |||
+   (string "gt"  >>: replace GtOpString)  |||
+   (string "lt"  >>: replace LtOpString)  |||
+   (string "ne"  >>: replace NeOpString)  |||
+   (string "cmp" >>: replace CmpOpString) |||
+   (string "."   >>: replace DotOpString) |||
+   (string "=="  >>: replace EqOpNumber)  |||
+   (string ">"   >>: replace GtOpNumber)  |||
+   (string "<"   >>: replace LtOpNumber)  |||
+   (string "!="  >>: replace NeOpNumber)  |||
+   (string ">="  >>: replace GEOpNumber)  |||
+   (string "<="  >>: replace LEOpNumber)  |||
+   (string "+"   >>: replace AddOp)       |||
+   (string "-"   >>: replace SubOp)       |||
+   (string "*"   >>: replace MulOp)       |||
+   (string "/"   >>: replace DivOp)       |||
+   (string "**"  >>: replace ExpOp)       |||
+   (string "%"   >>: replace ModOp)       |||
+   (string "="   >>: replace AssignOp)    |||
+   (string "<<"  >>: replace LShiftOp)    |||
+   (string ">>"  >>: replace RShiftOp)    |||
+   (string "&"   >>: replace BitAndOp)    |||
+   (string "|"   >>: replace BitOrOp)     |||
+   (string ".."  >>: replace RangeOp)     |||
+   (string "&&"  >>: replace AndOp)       |||
+   (string "||"  >>: replace OrOp)        |||
+   (string "//"  >>: replace DefOrOp)     |||
+   (string "=~"  >>: replace MatchOp)) corr
 ----
 
-Which parsing is trivial:
+Unary operators are similar:
 
-.PerlOp: parsers
+.PerlTerm: unary operators
 [source,ml]
 ----
-let operator corr =
-  ((string "eq"  >>: replace StringOpEq) |||
-   (string "gt"  >>: replace StringOpGt) |||
-   (string "lt"  >>: replace StringOpLt) |||
-   (string "ne"  >>: replace StringOpNe) |||
-   (string "cmp" >>: replace StringOpCmp) |||
-   (string "."   >>: replace StringOpDot) |||
-   (string "=="  >>: replace NumberOpEq) |||
-   (string ">"   >>: replace NumberOpGt) |||
-   (string "<"   >>: replace NumberOpLt) |||
-   (string "!="  >>: replace NumberOpNe) |||
-   (string ">="  >>: replace NumberOpGE) |||
-   (string "<="  >>: replace NumberOpLE) |||
-   (string "+"   >>: replace OpAdd) |||
-   (string "-"   >>: replace OpSub) |||
-   (string "*"   >>: replace OpMul) |||
-   (string "/"   >>: replace OpDiv) |||
-   (string "**"  >>: replace OpExp) |||
-   (string "%"   >>: replace OpMod)) corr
+type unop = MinusOp | PlusOp | NotOp | FlipOp
+          | PostIncOp | PostDecOp | PreIncOp | PreDecOp
+
+let unop_prefix corr =
+  ((item '-' >>: replace MinusOp)     |||
+   (item '+' >>: replace PlusOp)      |||
+   (item '!' >>: replace NotOp)       |||
+   (item '~' >>: replace FlipOp)      |||
+   (string "++" >>: replace PreIncOp) |||
+   (string "--" >>: replace PreDecOp)) corr
+
+let unop_postfix corr =
+  ((string "++" >>: replace PostIncOp) |||
+   (string "--" >>: replace PostDecOp)) corr
 ----
+
+And finally, the (only) ternary operator:
+
+Eventually, to define a term we will have to define recursively the many possible shapes a term can have.
+Let's start with the binary and unary operations:
+
+.PerlTerm: term type and parser
+[source,ml]
+----
+type t = UnaryOp of unop * t
+       | BinaryOp of t * binop * t
+       | TernaryOp of t * t * t
+       (* ...other constructors for terms... *)
+
+let rec term corr =
+  ((term ++ binop ++ term >>: fun x -> BinaryOp x)         |||
+   (unaop_prefix ++ term >>: fun x -> UnaryOp x)           |||
+   (term ++ unop_postfix >>: fun (t, o) -> UnaryOp (o, t)) |||
+   (term +- item ~what:"ternary operator (?)" '?' ++
+    term +- item ~what:"ternary operator (:)" ':' ++
+    term >>: fun x -> TernaryOp x)
+   (* ...other syntaxes for terms... *)) corr
+----
+
+==== Scalar immediate
+
+Next on our list is the scalar. Thanks to PerlImm we do not have much to do:
+
+...
+
+
+==== Anonymous Array, Hash or Function
+
+==== Variables and array lengths
+
+==== Subscripts and slices
+
+==== Reference
+
+==== Dereferences
+
+==== Lists and parentheses
+
+==== Function calls
+
+===== old style
+
+===== new style
+
+==== DO filename or block
+
+==== Goto, last, and friends
+
+==== Require
+
+==== My, Local...
+
+==== Yada yada and even more obscure terms
+
+=== Statements
+
+The simplest statement is known to be a single term (ended with a
+semicolon), supposedly evaluated for its side-effects:
+
+.PerlStmt: what is this?
+[source,ml]
+----
+let statement corr =
+  (term
+   (* ...other statements... *)) corr
+----
+
+==== Ellipsis
+
+The easiest of the statements is the ellipsis, a placeholder for unimplemented code.
+Notice that ellipsis can also be a binary operator in some occasions.
+
+.PerlStmt: ellipsis
+[source,ml]
+----
+let ellipsis corr =
+  (if PerlPersona.ellipsis_is_a_valid_statement
+   then string "..."
+   else fail) corr
+----
+
+.PerlPersona: more options
+[source,ml]
+----
+let ellipsis_is_a_valid_statement = true;
+----
+
+=== Modules
+
