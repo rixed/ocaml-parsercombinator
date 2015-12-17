@@ -329,6 +329,8 @@ let no_corr = BoundedSet.make 0
 let rest = input_of_string "glop glop pas glop"
 let no_input = []
 
+(* ...other global functions or types for testing... *)
+
 let uniq = function
   | [x, _, _] -> Some x
   | _ -> None
@@ -1137,9 +1139,6 @@ let decimal_digit corr =
 let non_zero_decimal_digit corr =
   range '1' '9' "non-zero digit" corr
 
-let underscore corr =
-  item '_' corr
-
 let num_of_char c =
   let cc = Char.code c in
   if cc >= Char.code '0' && cc <= Char.code '9' then
@@ -1334,11 +1333,11 @@ And finally the function that reads any immediate number:
 .PerlImm: number
 [source,ml]
 ----
-type number_imm = IntImm of integer
-                | FloatImm of float
-let number_imm corr =
-  ((integer        >>: fun x -> IntImm x) |||
-   (floating_point >>: fun x -> FloatImm x)) corr
+type number = Int of integer
+            | Float of float
+let number corr =
+  ((integer        >>: fun x -> Int x) |||
+   (floating_point >>: fun x -> Float x)) corr
 ----
 
 TODO: explain why sometime it's ok to get away with the other arguments and
@@ -1373,8 +1372,8 @@ quote and backslash, but any other backslash represents merely itself (ie.
 .PerlImm: non-interpolated strings
 [source,ml]
 ----
-type string_imm =
-    NoInterpStringImm of string
+type string =
+    NoInterpString of String.t
   (* ...other perl string types... *)
 
 let backslash corr = item ~what:"backslash" '\\' corr
@@ -1394,7 +1393,7 @@ let single_quoted_character corr =
 
 let single_quoted_string corr =
   (single_quote -+ repeat ~sep:none single_quoted_character +- single_quote >>:
-   fun s -> NoInterpStringImm (String.of_list s)) corr
+   fun s -> NoInterpString (String.of_list s)) corr
 ----
 
 With that module that we will use to personalize our parser behavior to mimic various Perl versions:
@@ -1416,7 +1415,7 @@ There, many backslash sequences are recognized, and any unknown backslash sequen
 .other perl string types
 [source,ml]
 ----
-| InterpStringImm of string
+| InterpString of String.t
 ----
 
 .PerlImm: interpolated strings
@@ -1449,7 +1448,7 @@ let double_quoted_character corr =
 
 let double_quoted_string corr =
   (double_quote -+ repeat ~sep:none double_quoted_character +- double_quote >>:
-   fun s -> InterpStringImm (String.of_list s)) corr
+   fun s -> InterpString (String.of_list s)) corr
 ----
 
 Notice the introduction of +cond_map+ which is a +cond+ that returns an
@@ -1489,7 +1488,7 @@ quoted string:
 .other perl string types
 [source,ml]
 ----
-| ExecedStringImm of string
+| ExecedString of String.t
 ----
 
 .PerlImm: backquoted strings
@@ -1499,7 +1498,7 @@ let back_quote corr = item ~what:"back-quote" '`' corr
 
 let back_quoted_string corr =
   (back_quote -+ repeat ~sep:none double_quoted_character +- back_quote >>:
-   fun s -> ExecedStringImm (String.of_list s)) corr
+   fun s -> ExecedString (String.of_list s)) corr
 ----
 
 
@@ -1518,7 +1517,7 @@ let vstring corr =
      let s = String.create l in
      List.iteri (fun i n ->
        s.[i] <- Char.chr n (* TODO: non ASCII characters *)) nums ;
-     NoInterpStringImm s
+     NoInterpString s
    ) corr
 ----
 
@@ -1527,10 +1526,10 @@ Which we'd better write tests for:
 .PerlImm: printers
 [source,ml]
 ----
-let print_string_imm fmt = function
-  | NoInterpStringImm s -> Printf.fprintf fmt "'%s'" s
-  | InterpStringImm s -> Printf.fprintf fmt "\"%s\"" s
-  | ExecedStringImm s -> Printf.fprintf fmt "`%s`" s
+let print_string fmt = function
+  | NoInterpString s -> Printf.fprintf fmt "'%s'" s
+  | InterpString s   -> Printf.fprintf fmt "\"%s\"" s
+  | ExecedString s   -> Printf.fprintf fmt "`%s`" s
   (* ...other printers for immediate strings... *)
 ----
 
@@ -1539,23 +1538,23 @@ let print_string_imm fmt = function
 ----
 "string immediate" >:: (
   fun _ctx ->
-    assert_same_results print_string_imm
-      [NoInterpStringImm "glop", no_corr, []]
+    assert_same_results print_string
+      [NoInterpString "glop", no_corr, []]
       (single_quoted_string no_corr (input_of_string "'glop'"))
 ) ;
 "vstring immediate" >:: (
   fun _ctx ->
-    assert_same_results print_string_imm
-      [NoInterpStringImm "A", no_corr, []]
+    assert_same_results print_string
+      [NoInterpString "A", no_corr, []]
       ((vstring +- eof "number") no_corr (input_of_string "v65")) ;
-    assert_same_results print_string_imm
-      [NoInterpStringImm "AB", no_corr, []]
+    assert_same_results print_string
+      [NoInterpString "AB", no_corr, []]
       ((vstring +- eof "number") no_corr (input_of_string "v65.66")) ;
-    assert_same_results print_string_imm
-      [NoInterpStringImm "ABC", no_corr, []]
+    assert_same_results print_string
+      [NoInterpString "ABC", no_corr, []]
       ((vstring +- eof "number") no_corr (input_of_string "v65.66.67")) ;
-    assert_same_results print_string_imm
-      [NoInterpStringImm "ABC", no_corr, []]
+    assert_same_results print_string
+      [NoInterpString "ABC", no_corr, []]
       ((vstring +- eof "number") no_corr (input_of_string "65.66.67")) ;
 ) ;
 ----
@@ -1565,34 +1564,34 @@ Finally some special literals are predefined strings:
 .other perl string types
 [source,ml]
 ----
-| FileStringImm
-| LineStringImm
-| PackageStringImm
-| SubStringImm
-| DataStringImm of string
+| FileString
+| LineString
+| PackageString
+| SubString
+| DataString of String.t
 ----
 
 .other printers for immediate strings
 [source,ml]
 ----
-| FileStringImm -> Printf.fprintf fmt "__FILE__"
-| LineStringImm -> Printf.fprintf fmt "__LINE__"
-| PackageStringImm -> Printf.fprintf fmt "__PACKAGE__"
-| SubStringImm -> Printf.fprintf fmt "__SUB__"
-| DataStringImm _s -> Printf.fprintf fmt "__DATA__"
+| FileString    -> Printf.fprintf fmt "__FILE__"
+| LineString    -> Printf.fprintf fmt "__LINE__"
+| PackageString -> Printf.fprintf fmt "__PACKAGE__"
+| SubString     -> Printf.fprintf fmt "__SUB__"
+| DataString _s -> Printf.fprintf fmt "__DATA__"
 ----
 
 .PerlImm: special predefined string literals
 [source,ml]
 ----
 let predefined_string corr =
-  ((string "__FILE__"    >>: replace FileStringImm)    |||
-   (string "__LINE__"    >>: replace LineStringImm)    |||
-   (string "__PACKAGE__" >>: replace PackageStringImm) |||
-   (string "__SUB__"     >>: replace SubStringImm)     |||
+  ((string "__FILE__"    >>: replace FileString)    |||
+   (string "__LINE__"    >>: replace LineString)    |||
+   (string "__PACKAGE__" >>: replace PackageString) |||
+   (string "__SUB__"     >>: replace SubString)     |||
    (string "__DATA__" -+ repeat ~sep:none anything +- eof "DATA"
                          >>: fun l ->
-                               DataStringImm (String.of_list l))) corr
+                               DataString (String.of_list l))) corr
 ----
 
 with a few new combinators so trivial we couldn't have envisioned they'd turn useful:
@@ -1622,7 +1621,7 @@ Finally, here is our string parser:
 .PerlImm: string parser
 [source,ml]
 ----
-let string_imm corr =
+let string corr =
   (single_quoted_string |||
    double_quoted_string |||
    vstring              |||
@@ -1638,217 +1637,17 @@ literally:
 .PerlImm: final scalar parser
 [source,ml]
 ----
-type scalar_imm = UndefImm
-                | StringImm of string_imm
-                | NumberImm of number_imm
-let scalar_imm corr =
-  ((string_imm     >>: fun s -> StringImm s) |||
-   (number_imm     >>: fun n -> NumberImm n) |||
-   (string "undef" >>: replace UndefImm))  corr
+type scalar = Undef
+            | String of string
+            | Number of number
+let scalar corr =
+  ((string >>: fun s -> String s) |||
+   (number >>: fun n -> Number n) |||
+   (Parsers.string "undef"
+           >>: replace Undef))  corr
 ----
 
 === Terms
-
-==== Words: Identifiers, Keywords, Barewords...
-
-Half-strings half-keywords, ``barewords'' are the first monstrous beasts of
-Perl demonology.  Barewords are all word-like things that are not keywords.  In
-many contexts, barewords will be mere unquoted non-interpolated strings. Even
-an integer can be a bareword (between curly braces: in ``{42}'', +42+ is indeed
-a bareword that will be equivalent to the string +"42"+ not an integer - also
-before the auto-quoting operator +=>+ of course). Barewords are strings each
-time they are not function calls, which sometime can be determined only at
-runtime.
-
-Given barewords are defined to be any name that's not a keyword nor a function
-call, we must first define names, then keywords. We will leave function
-calls for later.
-
-First of all, like in many other programming language, names begin with a
-letter or an underscore and may optionally include any combination of letters,
-numbers, and underscores:
-
-.PerlTerm: names
-[source,ml]
-----
-open Batteries
-open Parsers
-open PerlImm
-
-let name corr =
-  let first_char corr =
-    (letter ||| underscore) corr in
-  let char corr =
-    (letter ||| decimal_digit ||| underscore) corr in
-  (first_char ++ repeat_greedy ~sep:none char >>: fun (h,tl) ->
-    String.of_list (h::tl)) corr
-
-let fully_qualified_name corr =
-  (several ~sep:(string "::") name) corr
-----
-
-with the general enough purpose functions that we can add to the base library of
-parsers:
-
-.Parsers: basic character recognition parsers
-[source,ml]
-----
-let lowercase corr = range 'a' 'z' "lowercase" corr
-let uppercase corr = range 'A' 'Z' "uppercase" corr
-let letter corr = (lowercase ||| uppercase) corr
-----
-
-.tests
-[source,ml]
-----
-"valid names" >:: (
-  fun _ctx ->
-    [ "glop" ; "Glop" ; "_gl0p_" ] |>
-    List.iter (fun s ->
-      assert_same_results String.print
-        [s, no_corr, []]
-        (PerlTerm.name no_corr (input_of_string s)))
-) ;
-"invalid names" >:: (
-  fun _ctx ->
-    [ "0glop" ; " v" ; "" ] |>
-    List.iter (fun s ->
-      assert_same_results String.print
-        []
-        (PerlTerm.name no_corr (input_of_string s)))
-) ;
-----
-
-Let's now call ``identifier'' any name with a prefix:
-
-.PerlTerm: identifiers
-[source,ml]
-----
-type identifier_sigil = NoSigil
-                      | ScalarSigil | ArraySigil
-                      | HashSigil | FunctionSigil
-type identifier = identifier_sigil * string
-
-let identifier_sigil corr =
-  ((item ~what:"scalar sigil" '$'   >>: replace ScalarSigil) |||
-   (item ~what:"array sigil" '@'    >>: replace ArraySigil)  |||
-   (item ~what:"hash sigil" '%'     >>: replace HashSigil)   |||
-   (item ~what:"function sigil" '&' >>: replace FunctionSigil)) corr
-
-let identifier corr =
-  (optional ~def:NoSigil identifier_sigil ++ name) corr
-----
-
-Now let's try to recognize keywords:
-
-.PerlTerm: keywords
-[source,ml]
-----
-let keyword corr =
-  (string "if" ||| string "unless"   |||
-   string "while" ||| string "until" |||
-   string "else") corr
-----
-
-So that finally we can tell a bareword from a keyword:
-
-.PerlTerm: barewords
-[source,ml]
-----
-let bareword corr =
-  (check "not a keyword" (not keyword) -+ name) corr
-----
-
-.other term types
-[source,ml]
-----
-| Bareword of string
-----
-
-
-==== Lists
-
-Beside immediate scalar values and barewords, a term can also be a list,
-which is recursively made of other terms.
-
-List parsing is, as many Perl things, inconsequential. If the documentation
-insists that ``parentheses do not make lists, comas do'', the empty list in
-nonetheless represented as +()+.  But it is true that +(1,2,(3,4))+ is truly
-just +(1,2,3,4)+ (the second pair of parentheses does not introduce a sublist),
-as +(1,(),2)+ is just +(1,2)+, and that unless ordering of evaluation commands
-otherwise +(1,2,3)+ is equivalent as +1,2,3+.
-
-Notice that any coma can be an auto-quoting variant +=>+ instead, which (tries
-to) make the left item a string, and that the final coma (or auto-quoting
-separator) is optional.
-
-Given the recursive nature of lists we will define the +list+ parser and the
-+list_item+ parser as mutually recursive, and will let the +term+ and
-+whitespace+ parsers definition for later:
-
-.PerlTerm: list item
-[source,ml]
-----
-let left_parenth corr =
-  item ~what:"left parenthesis" '(' corr
-let right_parenth corr =
-  item ~what:"right parenthesis" ')' corr
-let coma corr =
-  item ~what:"coma" ',' corr
-let autoquoting_coma corr =
-  string "=>" corr
-
-let rec list_item corr =
-  (((term >>: List.singleton) |||
-    (left_parenth -+ list +- right_parenth))
-   +- opt_whitespace ++
-   ((coma >>: replace false) |||
-    (autoquoting_coma >>: replace true)) +-
-   opt_whitespace >>:
-   function [Bareword w], true -> [ScalarImm (StringImm (NoInterpStringImm w))]
-          | x, _ -> x) corr
-----
-
-Notice that the only case where the automatic quotation serves any purpose is when it's present after a bareword.
-
-Also, this +list_item+ parser always return a list (either with many
-terms as returned by the +list+ parser or with a single element if there
-was actually no sublist). All these sublists will have to be flattened in the
-+list+ parser. That's definitively not the most efficient way to write this
-parser but it makes it more readable.
-
-Notice also that to avoid infinite left recursion we must make sure of the
-presence of an opening parenthesis before recursing into +list+. The list
-parser itself will look for the optional presence of the parenthesis, just so
-that we can call it to parse a top-level lists.
-
-The +optional_greedy+ above is to avoid terminating a parser on an optional
-parser, which results in two possible result systematically, which the caller
-will not necessarily reduce if the next parser starts with the same optional
-parser. Indeed,
-
-[source,ml]
-----
-optional p ++ optional p
-----
-
-would yield 2 equivalent results.
-
-Given this +list_item+, now we can add the +list+ parser that will return parsed (into an OCaml list of
-terms) with:
-
-.PerlTerm: lists
-[source,ml]
-----
-and list corr =
-  (((left_parenth -+ repeat ~sep:none list_item +- right_parenth) |||
-    (repeat ~sep:none list_item)                                  |||
-    empty_list) >>: List.flatten) corr
-and empty_list corr =
-  ((left_parenth -- right_parenth) >>: replace []) corr
-----
-
-That we cannot test until we define +term+ and +whitespace+.
 
 ==== Terms and whitespaces
 
@@ -1858,7 +1657,9 @@ act as white spaces:
 .PerlTerm: whitespaces
 [source,ml]
 ----
-and whitespace corr =
+open Parsers
+
+let whitespace corr =
   let ws corr =
     (cond "space" (fun c ->
       c = ' ' || c = '\t' || c = '\n') ' ') corr in
@@ -1869,60 +1670,14 @@ and whitespace corr =
      repeat_greedy ~sep:none (not eol) +-
      eol) corr in
   (repeat_greedy ~sep:none (ws ||| comment)) corr
-and opt_whitespace corr =
+
+let opt_whitespace corr =
   optional_greedy ~def:[] whitespace corr
 ----
 
 Notice we read greedily the whitespaces because we want to avoid a +whitespace
 -- whitespace+ ambiguity and that we also have an +optional_greedy+ for the same
 reason.
-
-Terms will demand a little bit more work, but we already have an idea of how it should look like:
-
-.PerlTerm: finally, a term
-[source,ml]
-----
-and term corr =
-  ((scalar_imm >>: fun e -> ScalarImm e)
-   ||| (bareword   >>: fun e -> Bareword e)
-   (* ...other term parsers... *)) corr
-----
-
-==== Anonymous arrays
-
-Array references are really nothing more than a list within brackets:
-
-.PerlTerm: anonymous arrays
-[source,ml]
-----
-let left_bracket corr =
-  item ~what:"left bracket" '[' corr
-let right_bracket corr =
-  item ~what:"right bracket" ']' corr
-
-let anonymous_array corr =
-  (left_bracket -- opt_whitespace -+
-   list +-
-   opt_whitespace +- right_bracket) corr
-----
-
-==== Anonymous Hashes
-
-And the same goes for anonymous hashes, with curly brackets:
-
-.PerlTerm: anonymous hashes
-[source,ml]
-----
-let left_curly_bracket corr =
-  item ~what:"left curly bracket" '{' corr
-let right_curly_bracket corr =
-  item ~what:"right curly bracket" '}' corr
-
-let anonymous_hash corr =
-  (left_curly_bracket -- opt_whitespace -+
-   list +-
-   opt_whitespace +- right_curly_bracket) corr
-----
 
 ==== Operations
 
@@ -1947,8 +1702,6 @@ in order to shorten the code - and the encoding of values.
 .PerlTerm: binary operators
 [source,ml]
 ----
-open Parsers
-
 type binop = EqOpString | GtOpString | LtOpString
            | NeOpString | CmpOpString | DotOpString
            | EqOpNumber | GtOpNumber | LtOpNumber
@@ -2014,24 +1767,265 @@ let unop_postfix corr =
 
 And finally, the (only) ternary operator:
 
-Eventually, to define a term we will have to define recursively the many possible shapes a term can have.
-Let's start with the binary and unary operations:
+Eventually, to define a term we will have to define recursively the many
+possible shapes a term can have.  Unfortunately we an not follow too closely
+perl own parser because of it's heavy reliance on left recursion, which an
+combinatory parser can't do. Instead, we will have to _force_progress_ by
+defining a chain of terms and subterms in order of precedence.
+
+The principle of such a chain is to replace a left recursing definition such as:
+
+[source,ml]
+----
+let term corr = (term +- any_binary_op ++ term) corr
+----
+
+with:
+
+[source,ml]
+----
+let term1 corr = ((term2 +- low_precedence_op ++ term2) ||| term2) corr
+let term2 corr = ((term3 +- higher_precedence_op ++ term3) ||| term3) corr
+(* etc... *)
+----
+
+allowing recursion only after some input have been consumed:
+
+[source,ml]
+----
+let rec this_is_ok corr =
+  (item '{' -+ this_is_ok ++ item '}') corr
+let rec this_is_infinite_recursion corr =
+  (this_is_infinite_recursion ++ anything_else) corr
+let rec this_is_still_infinite_recursion corr =
+  (check "a check does not consume" some_check ++
+   this_is_still_infinite_recursion) corr
+----
+
+Now this chain will always parse left side first. If +1 + 2 * 3+ will properly
+be parsed as +1 + (2 * 3)+ (because the parse would fail if +term1+ consumed
+only +1 + 2+), the simple +3 - 2 - 1+ would be erroneously parsed as +3 - (2 -
+1)+ instead of +(3 - 2) - 1+. To help with left associative operators, we need
+to group operators of same precedence and associativity and use a +repeat+
+parser, which associativity we are free to choose.
+
+Here is a +binary_ops_reducer+ parser that takes a parser for binary operators
+of same associativity and precedence (here called +op+), and a parser for terms
+(called +term+), and returns either the left or right associativity parser. It
+is expected that the +term+ parser has higher precedence. It bear some
+resemblance with +repeat+ but does not discard the output of the separator
+(here: the operation) and build as a last stage the final result out of the
+list of partial results, with the expected associativity.  This situation
+occurs often enough in practice that it's worth having a generic solution in
+the parser combinator library. It is made generic enough by the use of another
+parameter, the +reduce+ function, that combines two terms and an operator
+results into a value of the same type as returned by term. Notice that this may
+force the user of this +binary_ops_reducer+ function to `lift` the sub-term
+parser in order to return a singleton term instead (if the sub-terms and terms
+do not share a common type).
+
+.Parsers: binary operations with selected associativity
+[source,ml]
+----
+let binary_ops_reducer ?(right_associative=false) ~op ~term ~sep ~reduce corr =
+  (term +- sep ++ repeat ~sep (op +- sep ++ term) >>:
+   fun (fst, lst) -> (* lst is a list of (op result * term result) *)
+     let rec loop_lst last_term = function
+       | [] -> last_term
+       | (op, next_term)::rest ->
+         if right_associative then
+           reduce last_term op (loop_lst next_term rest)
+         else
+           loop_lst (reduce last_term op next_term) rest
+         in
+     loop_lst fst lst) corr
+----
+
+Let's test it:
+
+.tests
+[source,ml]
+----
+"binary_ops_reducer" >:: (
+  fun _ctx ->
+    let term corr = (decimal_digit >>: fun c -> Term c) corr in
+    let op corr = item '+' corr in
+    let reduce t1 _op t2 = Op (t1, t2) in
+    [ "1+2",
+        Op (Term '1', Term '2'),
+        Op (Term '1', Term '2') ;
+      "1+2+3",
+        Op (Op (Term '1', Term '2'), Term '3'),
+        Op (Term '1', Op (Term '2', Term '3')) ;
+      "1+2+3+4",
+        Op (Op (Op (Term '1', Term '2'), Term '3'), Term '4'),
+        Op (Term '1', Op (Term '2', Op (Term '3', Term '4'))) ] |>
+    List.iter (fun (input_str, e1, e2) ->
+      (* e1 is the expected result for left associative parsing and
+         e2 for right associative parsing. *)
+      let input = input_of_string input_str in
+      assert_same_results ~msg:"left assoc." binary_ops_reducer_test_result_print
+        [e1, no_corr, []]
+        ((binary_ops_reducer ~op ~term ~sep:none ~reduce ~right_associative:false
+          +- eof "term") no_corr input) ;
+      assert_same_results ~msg:"right assoc." binary_ops_reducer_test_result_print
+        [e2, no_corr, []]
+        ((binary_ops_reducer ~op ~term ~sep:none ~reduce ~right_associative:true
+          +- eof "term") no_corr input))
+) ;
+----
+
+with type +binary_ops_reducer_test_result+ defined globally, as required by OCaml:
+
+.other global functions or types for testing
+[source,ml]
+----
+type binary_ops_reducer_test_result = Term of Char.t
+                                    | Op of (binary_ops_reducer_test_result *
+                                             binary_ops_reducer_test_result)
+
+let rec binary_ops_reducer_test_result_print fmt = function
+  | Term c ->
+     Printf.fprintf fmt "%c" c
+  | Op (r1, r2) ->
+     Printf.fprintf fmt "(%a+%a)"
+       binary_ops_reducer_test_result_print r1
+       binary_ops_reducer_test_result_print r2
+----
+
+Let's also test the handling of precedence with a small calculator:
+
+.tests
+[source,ml]
+----
+"precedence and associativity" >:: (
+  fun _ctx ->
+    let value corr = (decimal_digit >>: num_of_char) corr in
+    let reduce t1 op t2 = match op with
+      | '+' -> t1+t2 | '-' -> t1-t2
+      | '*' -> t1*t2 | '/' -> t1/t2
+      | '^' -> int_of_float((float_of_int t1)**(float_of_int t2))
+      | _ -> assert false in
+    let rec left_assoc_low_prec corr =
+      binary_ops_reducer ~op:(item '+' ||| item '-')
+                         ~term:left_assoc_high_prec
+                         ~sep:none ~reduce corr
+    and left_assoc_high_prec corr =
+      binary_ops_reducer ~op:(item '*' ||| item '/')
+                         ~term:right_assoc_higher_prec
+                         ~sep:none ~reduce corr
+    and right_assoc_higher_prec corr =
+      binary_ops_reducer ~op:(item '^')
+                         ~right_associative:true
+                         ~term:left_assoc_highest_prec
+                         ~sep:none ~reduce corr
+    and left_assoc_highest_prec corr =
+      (value |||
+       item '(' -+ left_assoc_low_prec +- item ')') corr in
+    [ "0",            0 ;
+      "1+2",          3 ;
+      "1+2+3",        6 ;
+      "1+2+3+4",     10 ;
+      "5-1",          4 ;
+      "5-4-1",        0 ;
+      "(5-4)-1",      0 ;
+      "5-(4-1)",      2 ;
+      "4^3^2",   262144 ;
+      "4^(3^2)", 262144 ;
+      "(4^3)^2",   4096 ;
+      "3*2+1",        7 ;
+      "1+3*2",        7 ;
+      "(1+3)*2",      8 ;
+      "8/2/2",        2 ] |>
+    List.iter (fun (input_str, exp) ->
+      let input = input_of_string input_str in
+      assert_same_results Int.print
+        [exp, no_corr, []]
+        ((left_assoc_low_prec +- eof "term") no_corr input))
+) ;
+----
+
+Now that we are confident we can parse operators with any precedence and
+associativity despite using parser combinators, let's have a look at perl
+operators.  Here is a list of all operators in precedence order, along with the
+name we will give to the parser:
+
+.Operators by precedence
+[cols="m,^,m",frame="topbot",options="header"]
+|===========================================================
+| operator    | associativity | parser
+| ->          | left          | deref_op
+| ++, --      | non           | pre_post_inc_dec
+| **          | right         | pow_op
+| ! ~ \ + -   | right         | unary_op
+| =~ !~       | left          | regexp_op
+| * / % x     | left          | mul_op
+| + - .       | left          | plus_op
+| << >>       | left          | shift_op
+| < > <= >= lt gt le ge | non           | cmp_op
+| == != <=> eq ne cmp ~~ | non          | eq_op
+| &           | left          | bitand_op
+| \| ^        | left          | bitor_op
+| &&          | left          | logand_op
+| \|\| //     | left          | logor_op
+| .. ...      | non           | range_op
+|  ?:         | right         | cond_op
+| = += -= *= etc. | right     | assign_op
+| goto last next redo dump | right       | loop_op
+| , =>        | left          | coma_op
+| list operators (rightwards) | right          | list_op
+| not         | right         | not_op
+| and         | left          | and_op
+| or xor      | left          | or_op
+|===========================================================
+
+Let's start with the unary, binary and ternary operations:
 
 .PerlTerm: term type and parser
-[source,ml]
+[source]
 ----
 type t = UnaryOp of unop * t
        | BinaryOp of t * binop * t
        | TernaryOp of t * t * t
        (* ...other constructors for terms... *)
 
+let rec pre_post_inc_dec corr =
+  ((unop_prefix ++ pow_op  >>: fun (o,t) -> UnaryOp (o, t)) |||
+   (pow_op ++ unop_postfix >>: fun (t,o) -> UnaryOp (o, t)) |||
+   pow_op) corr
+
+(*and pow_op corr =*)
+
+
+(* FIXME: left recursive!!
+Change into -> repeat ~sep:binop sub_term
+where sub_term is not allowed to start with a term.
+
+Ternary operator?
+term = repeat ~sep:(binop ||| '?' ||| ':') sub_term
+And parse again to reassemble the ternary operators.
+Alternative: term_with_ternaryop = term ++ optional ('?' term ':' term)
+because "1 + 2 ? 3 : 4" parses as 3 not 4 (all ops but assignments are more prio than ternary op).
+
+Postfix inc/dec?
+if we also allow "term = sub_term ++ postfix_op" then we can no longer
+post-inc a term ; in other words, we cannot write: $x++ ++ which is illegal anyway (even if perl parses it) because ++/-- are non-associative.
+
+Easier maybe to build the term by percedence order: start with "subterm1 = several ~sep:'**' subterm",
+then "subterm2 = several ~sep:'=~' subterm1" and so on?
+
+This has no more left recursion, and should accept the same input. Also makes useless to reorder according to precedence.
+
+Of course subterm is allowed to reuse term, but not as a leftmost parser.
+
+*)
 let rec term corr =
-  ((term ++ binop ++ term >>: fun x -> BinaryOp x)         |||
-   (unaop_prefix ++ term >>: fun x -> UnaryOp x)           |||
-   (term ++ unop_postfix >>: fun (t, o) -> UnaryOp (o, t)) |||
+  ((term ++ binop ++ term >>: fun ((t1,o),t2) -> BinaryOp (t1, o, t2)) |||
+   (unop_prefix ++ term  >>: fun (o,t) -> UnaryOp (o, t))              |||
+   (term ++ unop_postfix >>: fun (t,o) -> UnaryOp (o, t))              |||
    (term +- item ~what:"ternary operator (?)" '?' ++
     term +- item ~what:"ternary operator (:)" ':' ++
-    term >>: fun x -> TernaryOp x)
+    term >>: fun ((p,c),a) -> TernaryOp (p, c, a))
    (* ...other syntaxes for terms... *)) corr
 ----
 
@@ -2039,10 +2033,34 @@ let rec term corr =
 
 Next on our list is the scalar. Thanks to PerlImm we do not have much to do:
 
-...
+.other constructors for terms
+[source,ml]
+----
+| Scalar of PerlImm.scalar
+----
+
+.other syntaxes for terms
+[source,ml]
+----
+||| (PerlImm.scalar >>: fun s -> Scalar s)
+----
+
+==== Anonymous Array and Hash
+
+Arrays or hashes are mostly made of lists, which are made of expressions
+(+expr+ in perl parser), which are either lists of expressions or expressions
+combined with logical operators. Which is annoyingly left-recursive.
+
+.PerlTerm: expressions
+[source]
+----
+let rec expr corr =
+  ((expr ...)) corr
+----
+
+==== Anonymous Function
 
 
-==== Anonymous Array, Hash or Function
 
 ==== Variables and array lengths
 
@@ -2070,14 +2088,254 @@ Next on our list is the scalar. Thanks to PerlImm we do not have much to do:
 
 ==== Yada yada and even more obscure terms
 
+==== Words: Identifiers, Keywords, Barewords...
+
+Half-strings half-keywords, ``barewords'' are the first monstrous beasts of
+Perl demonology.  Barewords are all word-like things that are not keywords.  In
+many contexts, barewords will be mere unquoted non-interpolated strings. Even
+an integer can be a bareword (between curly braces: in ``{42}'', +42+ is indeed
+a bareword that will be equivalent to the string +"42"+ not an integer - also
+before the auto-quoting operator +=>+ of course). Barewords are strings each
+time they are not function calls, which sometime can be determined only at
+runtime.
+
+Given barewords are defined to be any name that's not a keyword nor a function
+call, we must first define names, then keywords. We will leave function
+calls for later.
+
+First of all, like in many other programming language, names begin with a
+letter or an underscore and may optionally include any combination of letters,
+numbers, and underscores:
+
+.PerlTerm: names
+[source,ml]
+----
+open Batteries
+open Parsers
+
+let name corr =
+  let first_char corr =
+    (letter ||| underscore) corr in
+  let char corr =
+    (letter ||| PerlImm.decimal_digit ||| underscore) corr in
+  (first_char ++ repeat_greedy ~sep:none char >>: fun (h,tl) ->
+    String.of_list (h::tl)) corr
+
+let fully_qualified_name corr =
+  (several ~sep:(string "::") name) corr
+----
+
+with the general enough purpose functions that we can add to the base library of
+parsers:
+
+.Parsers: basic character recognition parsers
+[source,ml]
+----
+let lowercase corr = range 'a' 'z' "lowercase" corr
+let uppercase corr = range 'A' 'Z' "uppercase" corr
+let letter corr = (lowercase ||| uppercase) corr
+let underscore corr = item '_' corr
+----
+
+.tests
+[source,ml]
+----
+"valid names" >:: (
+  fun _ctx ->
+    [ "glop" ; "Glop" ; "_gl0p_" ] |>
+    List.iter (fun s ->
+      assert_same_results String.print
+        [s, no_corr, []]
+        (PerlTerm.name no_corr (input_of_string s)))
+) ;
+"invalid names" >:: (
+  fun _ctx ->
+    [ "0glop" ; " v" ; "" ] |>
+    List.iter (fun s ->
+      assert_same_results String.print
+        []
+        (PerlTerm.name no_corr (input_of_string s)))
+) ;
+----
+
+Let's now call ``identifier'' any name with a prefix:
+
+.PerlTerm: identifiers
+[source,ml]
+----
+type identifier_sigil = NoSigil
+                      | ScalarSigil | ArraySigil
+                      | HashSigil | FunctionSigil
+type identifier = identifier_sigil * string
+
+let identifier_sigil corr =
+  ((item ~what:"scalar sigil" '$'   >>: replace ScalarSigil) |||
+   (item ~what:"array sigil" '@'    >>: replace ArraySigil)  |||
+   (item ~what:"hash sigil" '%'     >>: replace HashSigil)   |||
+   (item ~what:"function sigil" '&' >>: replace FunctionSigil)) corr
+
+let identifier corr =
+  (optional ~def:NoSigil identifier_sigil ++ name) corr
+----
+
+Now let's try to recognize keywords:
+
+.PerlTerm: keywords
+[source,ml]
+----
+let keyword corr =
+  (string "if" ||| string "unless"   |||
+   string "while" ||| string "until" |||
+   string "else") corr
+----
+
+So that finally we can tell a bareword from a keyword:
+
+.PerlTerm: barewords
+[source]
+----
+let bareword corr =
+  (check "not a keyword" (not keyword) -+ name) corr
+----
+
+.other term types
+[source]
+----
+| Bareword of String.t
+----
+
+
+==== Lists
+
+Beside immediate scalar values and barewords, a term can also be a list,
+which is recursively made of other terms.
+
+List parsing is, as many Perl things, inconsequential. If the documentation
+insists that ``parentheses do not make lists, comas do'', the empty list in
+nonetheless represented as +()+.  But it is true that +(1,2,(3,4))+ is truly
+just +(1,2,3,4)+ (the second pair of parentheses does not introduce a sublist),
+as +(1,(),2)+ is just +(1,2)+, and that unless ordering of evaluation commands
+otherwise +(1,2,3)+ is equivalent as +1,2,3+.
+
+Notice that any coma can be an auto-quoting variant +=>+ instead, which (tries
+to) make the left item a string, and that the final coma (or auto-quoting
+separator) is optional.
+
+Given the recursive nature of lists we will define the +list+ parser and the
++list_item+ parser as mutually recursive, and will let the +term+ and
++whitespace+ parsers definition for later:
+
+.PerlTerm: list item
+[source]
+----
+let left_parenth corr =
+  item ~what:"left parenthesis" '(' corr
+let right_parenth corr =
+  item ~what:"right parenthesis" ')' corr
+let coma corr =
+  item ~what:"coma" ',' corr
+let autoquoting_coma corr =
+  string "=>" corr
+
+let rec list_item corr =
+  (((term >>: List.singleton) |||
+    (left_parenth -+ list +- right_parenth))
+   +- opt_whitespace ++
+   ((coma >>: replace false) |||
+    (autoquoting_coma >>: replace true)) +-
+   opt_whitespace >>:
+   function [Bareword w], true -> [Scalar (String (NoInterpString w))]
+          | x, _ -> x) corr
+----
+
+Notice that the only case where the automatic quotation serves any purpose is when it's present after a bareword.
+
+Also, this +list_item+ parser always return a list (either with many
+terms as returned by the +list+ parser or with a single element if there
+was actually no sublist). All these sublists will have to be flattened in the
++list+ parser. That's definitively not the most efficient way to write this
+parser but it makes it more readable.
+
+Notice also that to avoid infinite left recursion we must make sure of the
+presence of an opening parenthesis before recursing into +list+. The list
+parser itself will look for the optional presence of the parenthesis, just so
+that we can call it to parse a top-level lists.
+
+The +optional_greedy+ above is to avoid terminating a parser on an optional
+parser, which results in two possible result systematically, which the caller
+will not necessarily reduce if the next parser starts with the same optional
+parser. Indeed,
+
+[source,ml]
+----
+optional p ++ optional p
+----
+
+would yield 2 equivalent results.
+
+Given this +list_item+, now we can add the +list+ parser that will return parsed (into an OCaml list of
+terms) with:
+
+.PerlTerm: lists
+[source]
+----
+and list corr =
+  (((left_parenth -+ repeat ~sep:none list_item +- right_parenth) |||
+    (repeat ~sep:none list_item)                                  |||
+    empty_list) >>: List.flatten) corr
+and empty_list corr =
+  ((left_parenth -- right_parenth) >>: replace []) corr
+----
+
+That we cannot test until we define +term+ and +whitespace+.
+
+==== Anonymous arrays
+
+Array references are really nothing more than a list within brackets:
+
+.PerlTerm: anonymous arrays
+[source]
+----
+let left_bracket corr =
+  item ~what:"left bracket" '[' corr
+let right_bracket corr =
+  item ~what:"right bracket" ']' corr
+
+let anonymous_array corr =
+  (left_bracket -- opt_whitespace -+
+   list +-
+   opt_whitespace +- right_bracket) corr
+----
+
+==== Anonymous Hashes
+
+And the same goes for anonymous hashes, with curly brackets:
+
+.PerlTerm: anonymous hashes
+[source]
+----
+let left_curly_bracket corr =
+  item ~what:"left curly bracket" '{' corr
+let right_curly_bracket corr =
+  item ~what:"right curly bracket" '}' corr
+
+let anonymous_hash corr =
+  (left_curly_bracket -- opt_whitespace -+
+   list +-
+   opt_whitespace +- right_curly_bracket) corr
+----
+
 === Statements
 
 The simplest statement is known to be a single term (ended with a
 semicolon), supposedly evaluated for its side-effects:
 
 .PerlStmt: what is this?
-[source,ml]
+[source]
 ----
+open Parsers
+let term = PerlTerm.term
+
 let statement corr =
   (term
    (* ...other statements... *)) corr
@@ -2091,6 +2349,7 @@ Notice that ellipsis can also be a binary operator in some occasions.
 .PerlStmt: ellipsis
 [source,ml]
 ----
+open Parsers (* again *)
 let ellipsis corr =
   (if PerlPersona.ellipsis_is_a_valid_statement
    then string "..."
