@@ -11,5 +11,8 @@ build: [
 install: [make "install"]
 remove: ["ocamlfind" "remove" "parsercombinator"]
 depends: [
-  "ocamlfind" "batteries" {build}
+  "ocamlfind"
+  "batteries"
+  "ounit"
+  "portia" {build}
 ]
