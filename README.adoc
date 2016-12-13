@@ -28,13 +28,13 @@ This is our ultimate objective, that drives all of the following requirements.
 
 === Parsing recursively
 
-Perl has +eval+ on strings. Therefore we do not want to stop parsing a soon as
-we reach a string literal if it's (or could be) passed to the +eval+ function.
+Perl has +eval+ on strings. Therefore we do not want to stop parsing as soon as
+we reach a string literal if it is (or could be) passed to the +eval+ function.
 
 === Parsing with gaps
 
 For the same reason, we want to be able to parse as much as possible of a code
-string even if we are missing some part of it.
+string even if we are missing some parts of it.
 
 === Best effort
 
@@ -44,20 +44,20 @@ than stopping the parse or selecting the most probable one.
 
 === Error detection?
 
-The code that will be sent to this parser will already be valid most of the time..
+The code that will be sent to this parser will already be valid most of the time.
 Therefore, the error reporting need not detect typos or other user error.
 Essentially, we need error reports merely to debug the parser itself. So error
 reports must _only_ include the (best) partial result(s) and why they failed.
 
 It is very unfortunate though that even in those favorable circumstances
 detecting what is the best attempt in order to explain why this one failed
-seems to require the same expensive error detection techniques that to detect
+seems to require the same expensive error detection techniques than to detect
 user typos.
 
-Indeed, the only way to detect the best attempt is: should this parser had
-behaved differently then the whole outcome would have been very different. In
-other words, should this parser accept this input as a valid token then we
-would have eventually parsed the whole input.
+Indeed, the only way to detect the best attempt is: had the parsing of this bit
+behaved differently then the whole outcome would have been much better.  In
+other words, had this parsing step accepted this input as valid, we would
+eventually have parsed the whole input.
 
 It is hard to think of any trivial trick to make it less awfully explosive that
 it sounds, beyond constraining the exploratory search within an 'error budget'.
