@@ -3,13 +3,19 @@ top_srcdir = @top_srcdir@
 PKG_NAME = parsercombinator
 
 # First extract the code from README
-GEN_SOURCES = BoundedSet.ml Corrections.ml Parsers.ml \
-							PerlPersona.ml PerlImm.ml \
-							PerlTerm.ml PerlStmt.ml \
-							test.ml
+GEN_ARC_SOURCES = \
+	BoundedSet.ml Corrections.ml Parsers.ml
+
+GEN_PERL_SOURCES = \
+	PerlPersona.ml PerlImm.ml \
+	PerlTerm.ml PerlStmt.ml \
+	test.ml
+
+GEN_SOURCES = $(GEN_ARC_SOURCES) $(GEN_PERL_SOURCES)
+
 GEN_FILES = $(GEN_SOURCES) README.html
 
-SOURCES = $(GEN_SOURCES)
+SOURCES = $(GEN_ARC_SOURCES)
 C_SOURCES =
 LIBS =
 

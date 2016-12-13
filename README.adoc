@@ -1979,20 +1979,19 @@ name we will give to the parser:
 Let's start with the unary, binary and ternary operations:
 
 .PerlTerm: term type and parser
-[source]
+[source,ml]
 ----
 type t = UnaryOp of unop * t
        | BinaryOp of t * binop * t
        | TernaryOp of t * t * t
        (* ...other constructors for terms... *)
-
+(*
 let rec pre_post_inc_dec corr =
   ((unop_prefix ++ pow_op  >>: fun (o,t) -> UnaryOp (o, t)) |||
    (pow_op ++ unop_postfix >>: fun (t,o) -> UnaryOp (o, t)) |||
    pow_op) corr
 
-(*and pow_op corr =*)
-
+and pow_op = ... *)
 ----
 
 ==== Scalar immediate
@@ -2018,10 +2017,10 @@ Arrays or hashes are mostly made of lists, which are made of expressions
 combined with logical operators. Which is annoyingly left-recursive.
 
 .PerlTerm: expressions
-[source]
+[source,ml]
 ----
-let rec expr corr =
-  ((expr ...)) corr
+(*let rec expr corr =
+  ((expr ...)) corr*)
 ----
 
 ==== Anonymous Function
@@ -2158,14 +2157,14 @@ let keyword corr =
 So that finally we can tell a bareword from a keyword:
 
 .PerlTerm: barewords
-[source]
+[source,ml]
 ----
 let bareword corr =
   (check "not a keyword" (not keyword) -+ name) corr
 ----
 
-.other term types
-[source]
+.other constructors for terms
+[source,ml]
 ----
 | Bareword of String.t
 ----
@@ -2192,7 +2191,7 @@ Given the recursive nature of lists we will define the +list+ parser and the
 +whitespace+ parsers definition for later:
 
 .PerlTerm: list item
-[source]
+[source,ml]
 ----
 let left_parenth corr =
   item ~what:"left parenthesis" '(' corr
@@ -2210,8 +2209,10 @@ let rec list_item corr =
    ((coma >>: replace false) |||
     (autoquoting_coma >>: replace true)) +-
    opt_whitespace >>:
-   function [Bareword w], true -> [Scalar (String (NoInterpString w))]
+   function [Bareword w], true -> [Scalar PerlImm.(String (NoInterpString w))]
           | x, _ -> x) corr
+
+and term = string "todo"
 ----
 
 Notice that the only case where the automatic quotation serves any purpose is when it's present after a bareword.
@@ -2243,7 +2244,7 @@ Given this +list_item+, now we can add the +list+ parser that will return parsed
 terms) with:
 
 .PerlTerm: lists
-[source]
+[source,ml]
 ----
 and list corr =
   (((left_parenth -+ repeat ~sep:none list_item +- right_parenth) |||
@@ -2260,7 +2261,7 @@ That we cannot test until we define +term+ and +whitespace+.
 Array references are really nothing more than a list within brackets:
 
 .PerlTerm: anonymous arrays
-[source]
+[source,ml]
 ----
 let left_bracket corr =
   item ~what:"left bracket" '[' corr
@@ -2278,7 +2279,7 @@ let anonymous_array corr =
 And the same goes for anonymous hashes, with curly brackets:
 
 .PerlTerm: anonymous hashes
-[source]
+[source,ml]
 ----
 let left_curly_bracket corr =
   item ~what:"left curly bracket" '{' corr
@@ -2297,7 +2298,7 @@ The simplest statement is known to be a single term (ended with a
 semicolon), supposedly evaluated for its side-effects:
 
 .PerlStmt: what is this?
-[source]
+[source,ml]
 ----
 open Parsers
 let term = PerlTerm.term
