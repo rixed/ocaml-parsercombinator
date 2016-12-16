@@ -4,14 +4,9 @@ PKG_NAME = parsercombinator
 
 # First extract the code from README
 GEN_ARC_SOURCES = \
-	BoundedSet.ml Corrections.ml Parsers.ml
+	Misc.ml BoundedSet.ml Corrections.ml Parsers.ml Usual.ml
 
-GEN_PERL_SOURCES = \
-	PerlPersona.ml PerlImm.ml \
-	PerlTerm.ml PerlStmt.ml \
-	test.ml
-
-GEN_SOURCES = $(GEN_ARC_SOURCES) $(GEN_PERL_SOURCES)
+GEN_SOURCES = $(GEN_ARC_SOURCES) test.ml
 
 GEN_FILES = $(GEN_SOURCES) README.html
 
@@ -34,7 +29,7 @@ EXAMPLES = $(EXAMPLES_BYTE) $(EXAMPLES_OPT)
 SYNTAX =
 
 .PHONY: all loc doc check-spec clean-spec dep-spec wc
-all: $(XARCHIVE) examples README.html
+all: $(XARCHIVE) examples README.html README.annot
 
 # Do not depend on $(GEN_SOURCES:.ml=.cmo) so that we get the .annot file
 # even when some file does not compile.

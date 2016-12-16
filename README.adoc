@@ -1,5 +1,5 @@
 // vim:filetype=asciidoc expandtab spell spelllang=en ts=2 sw=2
-= Homegrown Parser Combinators with error detection
+= Resumable Parser Combinators with error detection
 rixed@happyleptic.org
 v0.1, 2015-10-27
 :toc:
@@ -22,19 +22,38 @@ http://rixed.github.io/portia/notations.html[this document].
 
 == Requirements
 
-=== Parsing perl as deep as possible without executing it
+=== A N+1^th^ parser to rule them all
 
-This is our ultimate objective, that drives all of the following requirements.
+Along the years I've often wrote small dedicated parsing libraries, either using
+lex+yacc approach for well behaved syntaxes or custom made combinatoric parsers
+because they are fun to play with and more flexible. My needs ranged from
+parsing configuration files, parsing programming languages, parsing natural
+languages, parsing networking protocols...
+
+This parser is meant to be flexible enough to accommodate all those needs, when
+speed is not an issue.
+
+=== Parsing binary
+
+Most of the time one need to parse text, but some time the need arise to parse
+binary messages (such as when parsing some networking protocols). Therefore the
+first requirement is to not be bound to text. Therefore parsed input tokens
+must be of any type α.
 
 === Parsing recursively
 
-Perl has +eval+ on strings. Therefore we do not want to stop parsing as soon as
-we reach a string literal if it is (or could be) passed to the +eval+ function.
+I want to parse as much as possible from perl and other weird scripting
+languages (without executing them).  Perl has +eval+ on strings. Therefore
+parsing must not stop as soon as we reach a string literal but instead recurse
+and try to parse that string. It must therefore be possible to write such a
+recursive set of rules.
 
 === Parsing with gaps
 
-For the same reason, we want to be able to parse as much as possible of a code
-string even if we are missing some parts of it.
+For the same reason we want to be able to parse as much as possible of an input
+even if we are missing some parts of it. This is useful both to parse string
+fragments into code  ut also to parse a networking stream when some packets are
+missing.
 
 === Best effort
 
@@ -42,43 +61,83 @@ It will not always be possible to know for sure the type of all symbols. In
 that case we want to present all possible alternatives as the result, rather
 than stopping the parse or selecting the most probable one.
 
+=== Resumable parsers
+
+We want the parser to be usable for parsing large messages either received from
+the network or stored on a file, without having to buffer everything
+(especially since, as we will see, we will have more to store per input
+character than the mere character). Input tokens must therefore be consumed as
+they arrive, and the parser must "return" when it has done as much parsing as
+possible on the given input, and be resumable later on when more data is
+available.
+
+For this, +call_cc+ would help tremendously to freeze the state of affairs and
+return it to the original caller.  Without that facility, though, alternatives
+do exist:
+
+A conventional method to achieve something similar is to turn our API (aka our
+types) inside out: instead of taking a stream of input tokens and returning a
+result, parsers could take the next item and return, along with each result, a
+next-step parser to apply to the next token. This is rather inconvenient,
+though.
+
+Alternatively, threading is another way to freeze ones stack: a parser waiting
+for input could just be waiting for a conditional variable, or the input stream
+could be a `mailbox variable` kind of queue, etc. All this amount to relying on
+the kernel to freeze the parser and resume it later.
+
+We might want to use those parsers in an environment where using POSIX threads
+is not an option, though (such as: in a microkernel).  In that case lightweight
+threads (akin to gnupth) could work, but that's still a huge constraint on the
+environment. Instead, cooperative threads (also sometime referred to as
+"lightweight threads") are cheap and depends on nothing ; for this reason they
+are available in many shapes and forms. The downside is that the API needs to
+accommodate for those (basically, each parser returns a future value rather
+than a value). But once this abstraction is in place then one is free to use it
+for cooperative threads or POSIX threads or make it a bypass. That's thus what
+this library will be using, at the cost of a bit of functorization.
+
 === Error detection?
 
-The code that will be sent to this parser will already be valid most of the time.
-Therefore, the error reporting need not detect typos or other user error.
-Essentially, we need error reports merely to debug the parser itself. So error
-reports must _only_ include the (best) partial result(s) and why they failed.
+The input that will be sent to this parser will already be valid most of the
+time.  Then, error reports must _only_ include the (best) partial result(s) and
+why they failed.  It is very unfortunate though that even in those favorable
+circumstances detecting what is the best attempt in order to explain why it
+failed seems to require the same expensive error detection techniques than to
+detect user typos.
 
-It is very unfortunate though that even in those favorable circumstances
-detecting what is the best attempt in order to explain why this one failed
-seems to require the same expensive error detection techniques than to detect
-user typos.
+Indeed, the only way I could think of to unearth the best attempt is: "had the
+parsing of this bit behaved differently then the whole outcome would have been
+much better".  In other words: "had this parsing step accepted this input as
+valid, we would eventually have parsed the whole input".  And this requires to
+try different behavior at every step.
 
-Indeed, the only way to detect the best attempt is: had the parsing of this bit
-behaved differently then the whole outcome would have been much better.  In
-other words, had this parsing step accepted this input as valid, we would
-eventually have parsed the whole input.
-
-It is hard to think of any trivial trick to make it less awfully explosive that
+It is hard to think of any trivial trick to make it less awfully expensive than
 it sounds, beyond constraining the exploratory search within an 'error budget'.
 
 Many of those ideas come from
 http://www.staff.science.uu.nl/~swier101/Papers/1999/SofSem99.pdf[Fast, Error
 Correcting Parser Combinators: A Short Tutorial], a XX^th^ century paper.
 
+The good side is: we can turn off the feature and reclaim most of its cost by
+making the error budget zero.  And if detecting typos or other errors is a
+thing we have some level of control of the time spent on it.
+
 === Parser Combinators
 
-Perl does not bow to any rigid formal rule. Parser combinators are appealing
-because they make it possible to add new valid constructs without rethinking
-the whole grammar.  In addition, they make significantly easier to achieve the
-previous objectives.
+Scripting languages in general, and perl in particular, do not bow to any
+rigid formal grammar. Parser combinators are appealing because they make it
+possible to add new valid constructs without rethinking the whole grammar; in
+other words, to build a good enough parser iteratively.  In addition, they
+make it significantly easier to achieve the previous objectives.
 
 == The type of the parser
 
 To be clearer, let's write down the usual type of a parser used with
 combinators, written in ML:
 
-.Typical parser type
+// TODO: a better name than Temp
+.Temp: Typical parser type
 [source,ml]
 ----
 type ('a, 'b) result = 'b * 'a list
@@ -96,42 +155,145 @@ made of the final result and an empty list (no more input to be parsed). And
 when the parser fails to find any way to parse the input it returns a
 minimally informative empty list.
 
+For resumable parsing in a possibly cooperative threading context we need to
+introduce the +'a ct+ type (for a +cooperative thread+ of some form returning
+an +'a+), and make the input stream of tokens a possibly blocking function
+returning the next item, also turning our Parsers module into a functor
+depending on what mechanism we plan to use for cooperation between parsers
+and token input:
+
+.Parsers.ml: functor to parametrize over the cooperation mechanism
+[source,ml]
+----
+module type CONFIG = sig
+  (* ...Parser configuration... *)
+end
+
+module type S = sig
+  include CONFIG
+
+  (* ...Parser signatures... *)
+end
+
+module Make (Conf : CONFIG) :
+  S with type 'a ct = 'a Conf.ct
+     and type 'a stream = 'a Conf.stream =
+struct
+  include Conf
+
+  (* ...Parser library... *)
+end
+----
+
+Due to functorization we have to explicitly provide a signature for the
+result of +Make+ so that we can use the resulting parser as input of further
+functors. I regard this as one of the major annoyance of OCaml but hopefully
+it will help us check our understanding of what we are going to define.
+
+The configuration must thus provides the actual type for frozen computation
+(aka cooperative thread) as well as the possibly blocking input mechanism:
+
+.Parser configuration
+[source,ml]
+----
+type 'a ct
+type 'a stream
+val take : 'a stream -> ('a Misc.stream_value * 'a stream) ct
+----
+
+With the +stream_value+ type defined in a separate module that can therefore be
+included from all around the place without fearing circular dependencies:
+
+.Misc.ml: type of stream value
+[source,ml]
+----
+type 'a stream_value = Item of 'a | EndOfStream
+----
+
+Notice that this +stream+ container must be free of side effects to the extend
+that any token read from it in one place must still be available for reading
+from previously stored streams. That is why +take+ returns both the
+next token and the next (shorter) stream.
+
+We also need a way to wrap a value into a `cooperative thread` returning that value,
+and a way to pipe one `thread` into another, both operations typically called
+`return` and `bind` but here prefixed with +ct_+ before we reserve those names
+for our parser combinators:
+
+.Parser configuration
+[source,ml]
+----
+val ct_return : 'a -> 'a ct
+val ct_bind : 'a ct -> ('a -> 'b ct) -> 'b ct
+----
+
+Thus a parser now has this shape:
+
+.Temp: Resumable parser type
+[source,ml]
+----
+type ('a, 'b) result = 'b * 'a stream
+type ('a, 'b) parser = 'a stream -> ('a, 'b) result list ct
+----
+
+It will come handy to have a dummy configuration with no fancy threading in
+place, for those cases where we do not care for the parsers to be resumable or
+for testing. In this case out stream could be a mere list.
+
+The +SimpleConfig+ serves this purpose:
+
+.Parsers.ml: simple configuration for non-resumable parsers
+[source,ml]
+----
+open Misc
+module SimpleConfig =
+struct
+  type 'a ct = 'a
+  type 'a stream = 'a list
+  let take = function
+    | [] -> EndOfStream, []
+    | x :: rest -> Item x, rest
+  let ct_return x = x
+  let ct_bind x f = f x
+  (* ...other SimpleConfig definitions... *)
+end
+----
+
 Introducing the error budget changes this somewhat: we will try to
 artificially force the failing parsers to succeed in order to peek into the
 future and try to locate where a change would cause the parsing to succeed.
 This means that each individual result must be accompanied by a description of
 the (few) changes required to reach that point:
 
-.Parser type with error budget
+.Temp: Parser type with error budget
 [source,ml]
 ----
-type ('a, 'b) result = 'b * Corrections.t * 'a list
+type ('a, 'b) result = 'b * Corrections.t * 'a stream
 type ('a, 'b) parser =
-  Corrections.t -> 'a list -> ('a, 'b) result list
+  Corrections.t -> 'a stream -> ('a, 'b) result list ct
 ----
 
-Before looking closer to this new +Corrections.t+ type that would encode the corrections
-we must question the usage of a list of results as the return type. First, of
-course, a list if over-specified since the order of the possible result is not
-important; what we really want here is a set and we use a list only because it
-makes our code more terse. But more importantly, one may think that it is not
-enough to return an empty list in case of failure since we may also want to
-force artificially the failure of a parser; a possibility that we have
-dismissed without giving it proper consideration. Indeed, failing to recognize
-one form may enable a following parser to succeed. Consider for instance a C++
-like language with the erroneous input:
+Before looking closer at this new +Corrections.t+ type that would encode the
+corrections we must question the usage of a list of results as the return type.
+Firstly, a list is over-specified since the order of the possible results is
+not important; what we really want here is a set and we use a list only because
+it makes our code more terse. Secondly, and more importantly, an empty list to
+signal failure seems not enough if we want to artificially force the _failure_
+of parsers.
 
 ----
 class form;
 for x = new form(...);
 ----
 
-Obviously the intent was to write +form x = ...+. Once the parser have
-accepted the keyword +for+ as valid without questioning it then it is likely
-that the error message porting on what follows will be hard to understand. On
-another hand, if the parser also tried to force the failure of the keyword
-parser in this location then it will notice that everything would parse
-properly henceforth, suggesting a better error message.
+Obviously the intent was to write +form x = ...+. Imagine the rule to parse the
+second line is +is_keyword XOR is_name+. Once the parser have accepted the
+keyword +for+ as valid without questioning it then it is likely that the error
+message porting on what follows will be hard to understand. On another hand, if
+the parser also tried to force the failure of the keyword parser in this
+location then it will notice that everything would parse properly henceforth,
+suggesting a better error message. So it seems beneficial to return that
+failure as a correction and move on to next token.
 
 The price to pay for testing the failure of successful parsers is obviously high,
 though, and not only because of the additional time spent. Returning error
@@ -139,17 +301,18 @@ descriptions alongside failures forces us to give up the elegant list of
 result as the main return type (indeed, the empty list is not enough any more
 to denote failure since we also want to return the updated errors description).
 
-It seems that only in the case of the exclusive alternative this problem will
-arise. Should we decide not to implement such a combinator, then the the above
+But it seems that only in the case of the exclusive alternative this problem
+will arise. Should we decide not to implement such a combinator, then the above
 example ``either a keyword or a variable name that is not a keyword'' could
 still be written with inclusive alternative at the price of a redundant check:
 +is_keyword OR (is_name AND (check (NOT is_keyword))+. In this case we could
 explore the failure of the +NOT is_keyword+ check and will find that should
-+for+ be a valid variable name then the input would be valid, which will make
-a good enough error reporting.
++for+ be a valid variable name then the input would be valid, which will make a
+good enough error reporting.
 
 So we will not implement exclusive alternative and will instead explore forced
-success of the +check+ parser.
+success of the +check+ parser. Hence we saved our list of results as the return
+type.
 
 Now, what's this +Corrections.t+ type?
 
@@ -163,24 +326,19 @@ therefore loosing track of the position in the original stream. For generality
 let's introduce a new type ɣ to denote a position (could be merely the integer
 offset in the original stream or a more elaborate line and column number, or
 anything) and let's assume we read from the original stream not only the
-tokens but also the positions. And since we are reading the positions from the
-input stream we need to introduce a special value for representing the end of
-input, that we will call +EOF+:
-
-.Corrections: the type for positions
-[source,ml]
-----
-type 'c position = Coord of 'c | EOF
-----
+tokens but also the positions.
 
 So we need to record all changes that have already occurred (what and where)
 and how many changes we are still allowed to do. The ``What'' is limited to
-any string description of the parser that we forced to succeed.
+any string description of the parser that we forced to succeed. For the
+position we conveniently reuse the stream output as it can already encode both
+the position and the special +EOF+ position:
 
-.Corrections: type
+.Corrections.ml: type
 [source,ml]
 ----
-type 'c t = ('c position * string) BoundedSet.t
+open Misc
+type ('c, 'a) t = (('a * 'c) stream_value * string) BoundedSet.t
 ----
 
 where +BoundedSet+ is an unordered container with a maximum capacity (the
@@ -190,23 +348,35 @@ encounter the few required functions.
 Trivially, to add an error at position +pos+ to the correction list, with
 message +msg+:
 
-.Corrections: recording a change
+.Corrections.ml: recording a change
 [source,ml]
 ----
-let change_at corr pos msg =
-  BoundedSet.add corr (pos, msg)
+let change_at corr tokpos (msg : string) =
+  BoundedSet.add corr (tokpos, msg)
 ----
 
 Now that we know what corrections look like and that we have to read the
 positions alongside the tokens from the input stream, we can finally write the
 definitive parser type:
 
-.Parsers: final type
+.final parser type
 [source,ml]
 ----
-type ('a, 'b, 'c) result = 'b * ('c Corrections.t) * ('a * 'c) list
+type ('a, 'b, 'c) result = 'b * (('c, 'a) Corrections.t) * ('a * 'c) stream
 type ('a, 'b, 'c) t =
-  'c Corrections.t -> ('a * 'c) list -> ('a, 'b, 'c) result list
+  ('c, 'a) Corrections.t -> ('a * 'c) stream -> ('a, 'b, 'c) result list ct
+----
+
+.Parser library
+[source,ml]
+----
+(* ...final parser type... *)
+----
+
+.Parser signatures
+[source,ml]
+----
+(* ...final parser type... *)
 ----
 
 It is sometime unfortunate that OCaml compiler do not preserve the type
@@ -225,44 +395,52 @@ The simplest parsers that does nothing are +return+ and +fail+. They do not
 consume anything from the input but merely return a single result or no result
 at all. Given our parser type, here are their implementations:
 
-.Parsers: fail
+.Parser library: fail
 [source,ml]
 ----
-let fail _corr _unp = []
+let fail _corr _stream = ct_return []
 ----
 
-.Parsers: return
+.Parser library: return
 [source,ml]
 ----
-let return x corr rest = [x, corr, rest]
+let return x corr rest = ct_return [x, corr, rest]
 ----
 
-Those two first parsers perform no type of error detection at all.  But many
-other parsers will have to either terminate parsing abruptly (with +fail+) or
-add a change to the correction list and proceed, if the error budget is not
-exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
+with signatures:
 
-.Parsers: fail with success exploration
+.Parser signatures
+[source,ml]
+----
+val fail : ('a, 'b, 'c) t
+val return : 'b -> ('a, 'b, 'c) t
+----
+
+Those two first parsers perform no error detection at all.  But many other
+parsers will have to either terminate parsing abruptly (with +fail+) or add a
+change to the correction list and proceed, if the error budget is not exhausted
+already. We will abstract this in a +fail_or_maybe_not+ function:
+
+.Parser library: fail with success exploration
 [source,ml]
 ----
 open Batteries
 open Corrections
 
-let fail_or_maybe_not msg x ?pos corr rest =
-  let pos = Option.default_delayed (fun () -> next_position rest) pos in
-  if BoundedSet.is_full corr then []  (* no more errors permitted so fail for real *)
-  else [x, change_at corr pos msg, rest]
+let fail_or_maybe_not msg x ?pos_from corr rest =
+  ct_bind
+    (take (Option.default rest pos_from))
+    (fun (tokpos, _) ->
+      if BoundedSet.is_full corr then (
+        (* no more errors permitted so fail for real *)
+        ct_return []
+      ) else (
+        ct_return [x, change_at corr tokpos msg, rest]))
 ----
 
-with:
-
-.Corrections: next_position in a (possibly empty) stream
-[source,ml]
-----
-let next_position = function
-  | [] -> EOF
-  | (_tok, pos)::_ -> Coord pos
-----
+Notice that the +pos_from+ parameter allows the caller to set the position in
+addition to the message of the correction. By default the position will be
+taken from the passed stream (+rest+).
 
 Another parser that does not consume any input is the +check+ parser that we
 have mentioned earlier. It is actually a combinator since it takes another
@@ -270,32 +448,44 @@ parser as parameter. It checks that the given parser succeed but then return
 the input stream unchanged (with a +unit+ result). The only thing interesting
 is that it explores forcing a success in case the check fails.
 
-.Parsers: check
+.Parser library: check
 [source,ml]
 ----
 let check msg p corr rest =
-  match p corr rest with
-  | [] -> fail_or_maybe_not msg () corr rest
-  | _ -> return () corr rest
+  ct_bind (p corr rest) (function
+    | [] -> fail_or_maybe_not msg () corr rest
+    | _ -> return () corr rest)
+----
+
+.Parser signatures
+[source,ml]
+----
+val check : string -> ('a, 'b, 'c) t -> ('a, unit, 'c) t
 ----
 
 Another parser that will prove useful (despite contributing no value to the
 result) especially in coordination with +check+ is the negation:
 
-.Parsers: negation
+.Parser library: negation
 [source,ml]
 ----
-let not p corr rest =
-  match p corr rest with
-  | [] -> return () corr rest
-  | _ -> fail_or_maybe_not "not" () corr rest
+let nay p corr rest =
+  ct_bind (p corr rest) (function
+    | [] -> return () corr rest
+    | _ -> fail_or_maybe_not "not" () corr rest)
 ----
 
-So that we could write +check msg (not p)+.
+So that we could write +check msg (nay p)+.
+
+.Parser signatures
+[source,ml]
+----
+val nay : ('a, 'b, 'c) t -> ('a, unit, 'c) t
+----
 
 === Tests
 
-It's is important to have a test infrastructure in place before it's needed.
+It is important to have a test infrastructure in place before it's needed.
 Given literate programing allows us to mix code and tests at ease we do not
 need to get this feature from such a tool as
 https://github.com/vincent-hugot/iTeML[qtest] and will use
@@ -304,16 +494,19 @@ http://ounit.forge.ocamlcore.org/api-ounit/index.html[oUnit] directly.
 Supposing for now that we have all the required printers we can set up a
 satisfying environment for tests:
 
-.test: the stage.
+.test.ml: the stage.
 [source,ml]
 ----
 open Batteries
 open OUnit2
 open Corrections
-open Parsers
-(* ...other tested modules... *)
+open Misc
 
-let input_of_string s =
+module P = Parsers.Make (Parsers.SimpleConfig)
+(* ...other tested modules... *)
+open P
+
+let stream_of_string s =
   let rec loop n tl =
     if n < 0 then tl else
     loop (n-1) ((s.[n], n) :: tl) in
@@ -326,7 +519,7 @@ let correction_at pos msg =
   change_at corr pos msg
 
 let no_corr = BoundedSet.make 0
-let rest = input_of_string "glop glop pas glop"
+let rest = stream_of_string "glop glop pas glop"
 let no_input = []
 
 (* ...other global functions or types for testing... *)
@@ -337,22 +530,40 @@ let uniq = function
 
 (* version of assert_equal specialized for parser results *)
 let assert_same_results ?msg print_output exp actual =
-  let print_input = Char.print in
-  let print_coord fmt c = Printf.fprintf fmt "offset %d" c in
-  let result_printer = print_result print_input print_coord print_output in
+  let print_coord fmt (c, p) =
+    Printf.fprintf fmt "offset %d at \"%c...\"" p c in
+  let result_printer = print_result print_coord print_output in
   let results_printer = List.print result_printer in
-  (* OUnit really should have a assert_same_elements *)
-  assert_equal ~printer:(IO.to_string results_printer) ?msg
-    (exp |> List.sort compare)
-    (actual |> List.sort compare)
+  ct_bind actual (fun got ->
+    (* OUnit really should have a assert_same_elements *)
+    ct_return (
+      assert_equal ~printer:(IO.to_string results_printer) ?msg
+        (exp |> List.sort compare)
+        (got |> List.sort compare))) |>
+  ignore
 
 let test_suite =
+  "test helpers" >:::
+    [ "stream_of_empty" >:: (
+        fun _ctx ->
+          assert_equal ~printer:string_of_int
+            0 (List.length (stream_of_string ""))) ;
+      "stream_of_string basic" >:: (
+        fun _ctx ->
+          assert_equal ~printer:string_of_int
+            2 (List.length (stream_of_string "ab"))) ;
+      ] ;
   "tests" >:::
     [ (* ...tests... *) ]
 
 let () =
   run_test_tt_main test_suite
 ----
+
+Notice that we have to force the type of +assert_same_results+ to be +unit+
+(with +ignore+) otherwise it would be +unit P.ct P.ct+, which should be
+demonstrably equivalent to +unit+ given +SimpleConfig+, but for some reason the
+compiler still nag about it.
 
 That we can test with simple tests for +return+ and +fail+ (which really
 does not cause too much worries):
@@ -405,19 +616,41 @@ initializer list.
 We will therefore explore forcing the success of this parser, which implies
 cutting the unparsed stream when mimicking success:
 
-.Parsers: checking for EOF
+.Parser library: checking for EOF
 [source,ml]
 ----
-let eof msg corr = function
-  | [] -> return () corr []
-  | _ as rest ->
-    fail_or_maybe_not
-      ("spurious "^msg) () 
-      ~pos:(next_position rest) corr [] (* <1> *)
+open Misc
+let eof msg corr rest =
+  ct_bind (take rest) (function
+    | EndOfStream, rest' -> return () corr rest'
+    | _ ->
+      fail_or_maybe_not
+        ("spurious "^msg) () 
+        ~pos_from:rest corr empty_stream (* <1> *))
 ----
 
 <1>: Here we will restart with +rest = []+. That's the only case when forcing
 success also alters the input stream.
+
+.Parser signatures
+[source,ml]
+----
+val eof : string -> ('a, unit, 'c) t
+----
+
+This +empty_stream+ must therefore be provided by the parser configuration:
+
+.Parser configuration: empty stream
+[source,ml]
+----
+val empty_stream : 'a stream
+----
+
+.other SimpleConfig definitions
+[source,ml]
+----
+let empty_stream = []
+----
 
 And the accompanying test:
 
@@ -439,7 +672,7 @@ And the accompanying test:
 "eof suggests truncation" >:: (
   fun _ctx ->
     assert_same_results Unit.print
-      [(), correction_at (Coord 0) "spurious char", []]
+      [(), correction_at (Item ('g', 0)) "spurious char", []]
       (eof "char" corr rest)
 ) ;
 ----
@@ -456,19 +689,23 @@ on).
 
 Now that we know the type, writing the code is rather easy:
 
-.Parsers: the cond parser
+.Temp: the cond parser
 [source,ml]
 ----
 let cond msg f x corr rest =
-  let res, chg = (match rest with
-  | [] ->
-    [], [x (* <1> *), change_at corr EOF msg, rest]
-  | (tok, _pos)::rest' when f tok ->
-    [tok, corr, rest'], []
-  | (_tok, pos)::rest' ->
-    [], [x, change_at corr (Coord pos) msg, rest']) in
-  if BoundedSet.is_full corr || chg = [] then res
-  else List.rev_append res chg
+  ct_bind (take rest) (function
+    | EndOfStream, rest' ->
+      if BoundedSet.is_full corr then
+        ct_return []
+      else
+        ct_return [ x (* <1> *), change_at corr EndOfStream msg, rest' ]
+    | Item (tok, _pos), rest' when f tok ->
+      ct_return [ tok, corr, rest' ]
+    | item, rest' ->
+      if BoundedSet.is_full corr then
+        ct_return []
+      else
+        ct_return [ x, change_at corr item  msg, rest' ])
 ----
 
 So for each possible case (+EOF+, +f+ succeeds or +f+ fails) we prepare both
@@ -480,11 +717,60 @@ concern since only its type matters (although the error message could print it
 as an example, as OCaml compiler does when complaining about an incomplete
 pattern matching.
 
-It is possible to build many simpler and more convenient parsers on top of
-+cond+, such as +item+ which expects a specific token in the input, and +range+
-which expect anything in the given character range:
+.Parser signatures
+[source,ml]
+----
+val cond : string -> ('a -> bool) -> 'a -> ('a, 'a, 'c) t
+----
 
-.Parsers: the item parser
++cond_map+ is a +cond+ that returns an optional value instead of a mere
+boolean:
+
+.Parser library: cond_map
+[source,ml]
+----
+let cond_map msg f x corr rest =
+  ct_bind (take rest) (function
+    | EndOfStream, rest' ->
+      if BoundedSet.is_full corr then
+        ct_return []
+      else
+        ct_return [ x, change_at corr EndOfStream msg, rest' ]
+    | Item (tok, _pos) as item, rest' ->
+      (match f tok with
+       | Some v -> ct_return [ v, corr, rest' ]
+       | None   ->
+        if BoundedSet.is_full corr then
+          ct_return []
+        else
+          ct_return [ x, change_at corr item  msg, rest' ]))
+----
+
+.Parser signatures
+[source,ml]
+----
+val cond_map : string -> ('a -> 'b option) -> 'b -> ('a, 'b, 'c) t
+----
+
+from which we can write a simpler +cond+ parser:
+
+// TODO: a way in portia to say "replaces 'Parser library: the cond parser'"
+// TODO (alt): A definition starting with same name a one that already
+//             exist, followed by a coma and something should replace it in
+//             the output instead of been appended to it.
+.Parser library: the cond parser, revisited
+[source,ml]
+----
+let cond msg f =
+  cond_map msg (fun c -> if f c then Some c else None)
+----
+
+
+It is possible to build many simpler and more convenient parsers on top of
++cond+, such as +item+ which expects a specific token in the input, and
++range+ which expect anything in the given character range:
+
+.Parser library: the item parser
 [source,ml]
 ----
 let item ?(what="item") x =
@@ -492,6 +778,13 @@ let item ?(what="item") x =
 
 let range a b msg =
   cond msg (fun c -> c >= a && c <= b) a
+----
+
+.Parser signatures
+[source,ml]
+----
+val item : ?what:string -> 'a -> ('a, 'a, 'c) t
+val range : 'a -> 'a -> string -> ('a, 'a, 'c) t
 ----
 
 .tests
@@ -518,7 +811,7 @@ let range a b msg =
 "item error exploration" >:: (
   fun _ctx ->
     assert_same_results Char.print
-      ['X', correction_at (Coord 0) "missing item", List.tl rest]
+      ['X', correction_at (Item ('g', 0)) "missing item", List.tl rest]
       (item 'X' corr rest)
 ) ;
 ----
@@ -527,94 +820,116 @@ let range a b msg =
 
 Before going too far we need to introduce functions to alter a parser result (equivalent of map, fold, filter...) and come up with a convenient syntax for those since they are going to be used prevalently.
 
-.Parsers: applying a function to all results of a parser
+.Parser library: applying a function to all results of a parser
 [source,ml]
 ----
 let map p f corr rest =
-  p corr rest |>
-  List.map (fun (x, corr, rest) -> f x, corr, rest)
+  ct_bind (p corr rest) (fun results ->
+    List.map (fun (x, corr, rest) -> f x, corr, rest) results |>
+    ct_return)
 ----
 
 The order of parameters is important so that +map p f+ is itself a parser.
 An infix operator makes it even more convenient:
 
-.Parsers: infix operator for map
+.Parser library: infix operator for map
 [source,ml]
 ----
 let (>>:) = map
 ----
 
+.Parser signatures
+[source,ml]
+----
+val map :   ('a, 'b, 'c) t -> ('b -> 'd) -> ('a, 'd, 'c) t
+val (>>:) : ('a, 'b, 'c) t -> ('b -> 'd) -> ('a, 'd, 'c) t
+----
 
 == Combinators
 
-The first combinators to consider are the succession of two given parsers, the
-alternative of two parsers, and the pipe of one parser result into the input of
-another one.
+The first combinators to consider are the succession of two given parsers,
+the alternative of two parsers, and the pipe of one parser result into the
+input of another one.
 
 Notice that since we are now merely combining parsers we do not have to care
 about error correction any more: only the base parsers need to pretend
 succeeding when they fail.
 
-The more general way to build a combinator for the succession of to parsers is
-to take the first parser +p1+ and a function +f+ witch, given the output of
+The more general way to build a combinator for the succession of two parsers is
+to take the first parser +p1+ and a function +f+ which, given the output of
 +p1+, will return a parser +p2+ to apply to the remaining of the input stream.
 Let's call this combinator +bind+ (by analogy with the type of the +bind+
 operation in the monad ``design pattern''). The values of +bind p1 f+ are the
 values of +p2+, +p1+ intermediary values being only meaningful to build +p2+.
 
-.Parsers: bind
+.Parser library: bind
 [source,ml]
 ----
 let bind p1 f corr rest =
-  (* for each possible result of p1, try to continue parsing with p2 *)
-  p1 corr rest |>
-  List.fold_left (fun res_list' (x1, corr1, unp1) ->
-    let p2 = f x1 in
-    match p2 corr1 unp1 with
-    | [] -> res_list'
-    | res_list2 ->
-      List.rev_append res_list2 res_list')
-    []
+  ct_bind (p1 corr rest) (fun results ->
+    (* for each possible result of p1, try to continue parsing with p2 *)
+    List.fold_left (fun res_list' (x1, corr1, unp1) ->
+        let p2 = f x1 in
+        ct_bind (p2 corr1 unp1) (function
+          | [] -> res_list'
+          | res_list2 ->
+            ct_bind (res_list') (fun lst ->
+              ct_return (List.rev_append res_list2 lst)))
+      ) (ct_return []) results)
 ----
 
 With the usual infix operator:
 
-.Parsers: infix operator for bind
+.Parser library: infix operator for bind
 [source,ml]
 ----
 let (>>=) = bind
 ----
 
+.Parser signatures
+[source,ml]
+----
+val bind :  ('a, 'b, 'c) t -> ('b -> ('a, 'd, 'c) t) -> ('a, 'd, 'c) t
+val (>>=) : ('a, 'b, 'c) t -> ('b -> ('a, 'd, 'c) t) -> ('a, 'd, 'c) t
+----
+
 Given this +bind+ combinator, the concatenation of two given parsers +p1+ and
 +p2+ can be easily written as:
 
-.Parsers: succession of two parsers
+.Parser library: succession of two parsers
 [source,ml]
 ----
 let cons p1 p2 =
   p1 >>= (fun x1 -> p2 >>: fun x2 -> x1,x2)
 ----
 
-Here, we want the final result set to be the product of each
-result of +p1+ with all following results of +p2+.
+Here, we want the final result set to be the product of each result of +p1+
+with all following results of +p2+.
 
-This parser being used to connect successive parsers we'd rather have a shorter
-infix alternative for +cons+:
+This parser being used to connect successive parsers we'd rather have a
+shorter infix alternative for +cons+:
 
-.Parsers: infix operator for cons
+.Parser library: infix operator for cons
 [source,ml]
 ----
 let (++) p1 p2 = cons p1 p2
 ----
 
-Also, we will often discard the result of one parser. For instance when parsing
-delimiters the only information is that the parser succeeds (there is a
-delimiter) but there is no value to attach to that success. Also when using
-the +check+ parser, which purpose is really not its return value. So here are
-three variants of +cons+: one that ignores the result of +p1+, one that ignores
-the result of +p2+, and one that ignore both (returning +()+):
+.Parser signatures
+[source,ml]
+----
+val cons : ('a, 'b, 'c) t -> ('a, 'd, 'c) t -> ('a, 'b * 'd, 'c) t
+val (++) : ('a, 'b, 'c) t -> ('a, 'd, 'c) t -> ('a, 'b * 'd, 'c) t
+----
 
-.Parsers: other convenient infix operators
+Also, we will often discard the result of one parser. For instance when
+parsing delimiters the only information is that the parser succeeds (there is
+a delimiter) but there is no value to attach to that success. Also when using
+the +check+ parser, which purpose is really not its return value. So here are
+three variants of +cons+: one that ignores the result of +p1+, one that
+ignores the result of +p2+, and one that ignore both (returning +()+):
+
+.Parser library: other convenient infix operators
 [source,ml]
 ----
 let (+-) p1 p2 = p1 ++ p2 >>: fst
@@ -622,14 +937,22 @@ let (-+) p1 p2 = p1 ++ p2 >>: snd
 let (--) p1 p2 = p1 ++ p2 >>: fun _ -> ()
 ----
 
-Now let's test we can indeed sequence parsers:
+.Parser signatures
+[source,ml]
+----
+val (+-) : ('a, 'b, 'c) t -> ('a, 'd, 'c) t -> ('a, 'b, 'c) t
+val (-+) : ('a, 'b, 'c) t -> ('a, 'd, 'c) t -> ('a, 'd, 'c) t
+val (--) : ('a, 'b, 'c) t -> ('a, 'd, 'c) t -> ('a, unit, 'c) t
+----
+
+Now let's test that we can indeed sequence parsers:
 
 .tests
 [source,ml]
 ----
 "Can parse a sequence" >:: (
   fun _ctx ->
-    let ab = input_of_string "ab" in
+    let ab = stream_of_string "ab" in
     assert_same_results (Tuple2.print Char.print Char.print)
       [('a', 'b'), no_corr, []]
       ((item 'a' ++ item 'b') no_corr ab) ;
@@ -641,15 +964,22 @@ Now let's test we can indeed sequence parsers:
 
 The second most useful combinator is the alternative:
 
-.Parsers: alternative
+.Parser library: alternative
 [source,ml]
 ----
 let oneof p1 p2 corr rest =
-  let res_list1 = p1 corr rest in
-  let res_list2 = p2 corr rest in
-  List.rev_append res_list1 res_list2
+  ct_bind (p1 corr rest) (fun res_list1 ->
+    ct_bind (p2 corr rest) (fun res_list2 ->
+      ct_return (List.rev_append res_list1 res_list2)))
 
 let (|||) = oneof
+----
+
+.Parser signatures
+[source,ml]
+----
+val oneof : ('a, 'b, 'c) t -> ('a, 'b, 'c) t -> ('a, 'b, 'c) t
+val (|||) : ('a, 'b, 'c) t -> ('a, 'b, 'c) t -> ('a, 'b, 'c) t
 ----
 
 Notice that results are really sets not list, so the order in which the
@@ -659,13 +989,20 @@ contribute a result to the result set. As discussed in the beginning we do
 not enforce that if +p1+ succeeds then +p2+ must fail nor the other way
 around. If this is wanted though then it is easy enough to write:
 
-.Parsers: exclusive alternative
+.Parser library: exclusive alternative
 [source,ml]
 ----
 let either p1 p2 =
-  (check "??1" (not p2) -+ p1) ||| (check "??2" (not p1) -+ p2)
+  (check "??1" (nay p2) -+ p1) ||| (check "??2" (nay p1) -+ p2)
 
 let (|/|) = either
+----
+
+.Parser signatures
+[source,ml]
+----
+val either : ('a, 'b, 'c) t -> ('a, 'b, 'c) t -> ('a, 'b, 'c) t
+val (|/|) :  ('a, 'b, 'c) t -> ('a, 'b, 'c) t -> ('a, 'b, 'c) t
 ----
 
 With sequences and alternatives we can start writing some interesting tests:
@@ -678,39 +1015,18 @@ With sequences and alternatives we can start writing some interesting tests:
     let a_or_b = item 'a' ||| item 'b' in
     assert_same_results Char.print
       ['a', no_corr, []]
-      (a_or_b no_corr (input_of_string "a")) ;
+      (a_or_b no_corr (stream_of_string "a")) ;
     assert_same_results Char.print
       ['b', no_corr, []]
-      (a_or_b no_corr (input_of_string "b")) ;
+      (a_or_b no_corr (stream_of_string "b")) ;
     assert_same_results Char.print
       []
-      (a_or_b no_corr (input_of_string "z")) ;
+      (a_or_b no_corr (stream_of_string "z")) ;
     assert_same_results Char.print
-      ['a', correction_at (Coord 0) "missing item", [] ;
-       'b', correction_at (Coord 0) "missing item", []]
-      (a_or_b corr (input_of_string "z"))
+      ['a', correction_at (Item ('z', 0)) "missing item", [] ;
+       'b', correction_at (Item ('z', 0)) "missing item", []]
+      (a_or_b corr (stream_of_string "z"))
 ) ;
-----
-
-Finally, it is often useful to have a first parser output a list of results
-which are then feed into another parser. Think for example: splitting character
-stream into keywords and then parsing those keywords.
-
-.Parsers: pipe
-[source,ml]
-----
-let pipe p1 p2 corr rest =
-  let res_list1 = p1 corr rest in
-  List.fold_left (fun res_list (x1, corr1, unp1) ->
-    (* x1 is supposed to be a list *)
-    let res_list2 = p2 corr1 x1 in
-    (* We want the result of p2 with the remained of p1! *)
-    List.fold_left (fun res_list (x2, corr2, _unp2) ->
-      (* Notice that we do not care about unp2: if the user want to
-         make sure that p2 parses all of x then if must make p2 checks this. *)
-      (x2, corr2, unp1)::res_list)
-      res_list res_list2)
-    [] res_list1
 ----
 
 == Repeating parsers
@@ -722,11 +1038,30 @@ unspecified number of times.
 Before that, a special case of repetition will prove very useful: having zero
 or one occurrence of +p+:
 
-.Parsers: zero or one
+.Parser library: zero or one
 [source,ml]
 ----
 let optional ~def p = p ||| return def
-let optional_greedy ~def p = (p +- check "??3" (not p)) ||| return def
+let optional_greedy ~def p = (p +- check "??3" (nay p)) ||| return def
+----
+
+The +optional_greedy+ above is to avoid terminating a parser on an optional
+parser, which results in two possible result systematically, which the caller
+will not necessarily reduce if the next parser starts with the same optional
+parser. Indeed,
+
+[source,ML]
+----
+optional p ++ optional p
+----
+
+would yield 2 equivalent results.
+
+.Parser signatures
+[source,ml]
+----
+val optional : def:'b -> ('a, 'b, 'c) t -> ('a, 'b, 'c) t
+val optional_greedy : def:'b -> ('a, 'b, 'c) t -> ('a, 'b, 'c) t
 ----
 
 The +repeat+ combinator is a swiss-army knife for all variants of repetitions,
@@ -735,9 +1070,11 @@ an optional additional parser +sep+ for a separator in between +p+ occurrences.
 It returns a list of all values returned by the successive +p+.
 
 But allowing +min+ to be +0+ (and making it the default value) we expect to
-cut down on the +optional (repeat p)+ that we would have otherwise.
+cut down on the many +optional (repeat p)+ that we would have otherwise.
 
-.Parsers: repetition of a parser
+TODO: make sure that all parsers used in there behave properly using tests first!
+
+.Parser library: repetition of a parser
 [source,ml]
 ----
 let rec repeat ~sep ?(min=0) ?max p corr rest =
@@ -770,6 +1107,15 @@ stage.  We'd like to get away with this list which, most often than not will be
 changed into something else value by value. A lazy list (or a BatEnum) would
 likely be preferable here (as in other places).
 
+.Parser signatures
+[source,ml]
+----
+val repeat :
+  sep:('a, 'd, 'c) t -> ?min:int -> ?max:int -> ('a, 'b, 'c) t -> ('a, 'b list, 'c) t
+----
+
+
+
 We'd like to get away with the mandatory +sep+ parameter using a default value
 of +return ()+ but that would prevent OCaml compiler to infer that since +sep+
 result is consistently discarded any result type would be as good.  Simpler
@@ -785,7 +1131,7 @@ val f : ?sep:int -> 'a -> 'a = <fun>
 Therefore we merely provide this short do-nothing constant parser to be used
 when there is no separator:
 
-.Parsers: none
+.Parser library: none
 [source,ml]
 ----
 let none corr = return () corr
@@ -795,6 +1141,12 @@ You may be surprised by this notation, either because you were expecting +let
 none corr rest = return () corr rest+ or the shorter +let none = return ()+.
 Refer to the appendix about type generalization if that is the case (TODO: link).
 
+.Parser signatures
+[source,ml]
+----
+val none : ('a, unit, 'c) t
+----
+
 We can easily define the greedy version of +repeat+ (that is, a version that
 swallows as many +p+ occurrences as present in the input stream) using check:
 
@@ -802,22 +1154,29 @@ swallows as many +p+ occurrences as present in the input stream) using check:
 [source,ml]
 ----
 let repeat_greedy ~sep ?min ?max p =
-  repeat ~sep ?min ?max p +- check "extraneous" (not (sep -+ p))
+  repeat ~sep ?min ?max p +- check "extraneous" (nay (sep -+ p))
 ----
 
 ...which unfortunately fails for +min=0+ because of the separator.  We have to
 be more cautious not to allow an input stream starting with +p+ before
 returning +[]+:
 
-.Parsers: greedy repetition
+.Parser library: greedy repetition
 [source,ml]
 ----
 let rec repeat_greedy ~sep ?min ?max p =
   match min with
   | None | Some 0 ->
-    repeat_greedy ~sep ~min:1 ?max p ||| (check "extraneous" (not p) >>: fun () -> [])
+    repeat_greedy ~sep ~min:1 ?max p ||| (check "extraneous" (nay p) >>: fun () -> [])
   | min ->
-    repeat ~sep ?min ?max p +- (check "extraneous" (not (sep -+ p)) >>: fun _ -> [])
+    repeat ~sep ?min ?max p +- (check "extraneous" (nay (sep -+ p)) >>: fun _ -> [])
+----
+
+.Parser signatures
+[source,ml]
+----
+val repeat_greedy :
+  sep:('a, 'd, 'c) t -> ?min:int -> ?max:int -> ('a, 'b, 'c) t -> ('a, 'b list, 'c) t
 ----
 
 .tests
@@ -852,9 +1211,9 @@ let rec repeat_greedy ~sep ?min ?max p =
       (* min = max *)
       assert_ok ~sep ~min:2 ~max:2 rest
         [['a';'a'],     no_corr, drop 2] in
-    let aaab = input_of_string "aaab"
-    and a_a_a_b = input_of_string "a_a_a_b"
-    and _a_a_a_b = input_of_string "_a_a_a_b" in
+    let aaab = stream_of_string "aaab"
+    and a_a_a_b = stream_of_string "a_a_a_b"
+    and _a_a_a_b = stream_of_string "_a_a_a_b" in
     test_with_sep none       0 aaab ;
     test_with_sep (item '_') 1 a_a_a_b ;
     assert_ok ~greedy:true ~sep:none aaab
@@ -869,39 +1228,47 @@ let rec repeat_greedy ~sep ?min ?max p =
   fun _ctx ->
     assert_same_results (List.print Char.print)
       []
-      (repeat ~sep:none ~min:1 (item 'a') no_corr (input_of_string "zaab")) ;
+      (repeat ~sep:none ~min:1 (item 'a') no_corr (stream_of_string "zaab")) ;
     assert_same_results (List.print Char.print)
       []
-      (repeat_greedy ~sep:none ~min:1 (item 'a') no_corr (input_of_string "zaab"))
+      (repeat_greedy ~sep:none ~min:1 (item 'a') no_corr (stream_of_string "zaab"))
 ) ;
 "repetition: missing separator" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
       []
-      (repeat ~sep:(item '-') ~min:3 (item 'a') no_corr (input_of_string "a-aab")) ;
+      (repeat ~sep:(item '-') ~min:3 (item 'a') no_corr (stream_of_string "a-aab")) ;
     assert_same_results (List.print Char.print)
       []
-      (repeat_greedy ~sep:(item '-') ~min:3 (item 'a') no_corr (input_of_string "a-aab"))
+      (repeat_greedy ~sep:(item '-') ~min:3 (item 'a') no_corr (stream_of_string "a-aab"))
 ) ;
 "repetition: below min" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
       []
-      (repeat ~sep:none ~min:2 (item 'a') no_corr (input_of_string "baab")) ;
+      (repeat ~sep:none ~min:2 (item 'a') no_corr (stream_of_string "baab")) ;
     assert_same_results (List.print Char.print)
       []
-      (repeat_greedy ~sep:none ~min:2 (item 'a') no_corr (input_of_string "baab"))
+      (repeat_greedy ~sep:none ~min:2 (item 'a') no_corr (stream_of_string "baab"))
 ) ;
 ----
 
 Some variants of +repeat+ can now be defined:
 
-.Parsers: repeat variants
+.Parser library: repeat variants
 [source,ml]
 ----
 let several ~sep = repeat ~sep ~min:1
 let several_greedy ~sep = repeat_greedy ~sep ~min:1
 let times ~sep n = repeat ~sep ~min:n ~max:n
+----
+
+.Parser signatures
+[source,ml]
+----
+val several : sep:('a, 'd, 'c) t -> ?max:int -> ('a, 'b, 'c) t -> ('a, 'b list, 'c) t
+val several_greedy : sep:('a, 'z, 'c) t -> ?max:int -> ('a, 'b, 'c) t -> ('a, 'b list, 'c) t
+val times : sep:('a, 'z, 'c) t -> int -> ('a, 'b, 'c) t -> ('a, 'b list, 'c) t
 ----
 
 With all these new combinators, more interesting tests can be devised:
@@ -916,10 +1283,10 @@ With all these new combinators, more interesting tests can be devised:
       assert_bool "not a digit" (i >= 0 && i <= 9) ;
       (* match a sequence of i zeros *)
       times ~sep:none i (item '0')) in
-    let rest1 = input_of_string "105"
-    and rest2 = input_of_string "100"
-    and rest3 = input_of_string "30005"
-    and rest4 = input_of_string "3005" in
+    let rest1 = stream_of_string "105"
+    and rest2 = stream_of_string "100"
+    and rest3 = stream_of_string "30005"
+    and rest4 = stream_of_string "3005" in
     assert_same_results (List.print Char.print)
       [['0'], no_corr, List.drop 2 rest1]
       (p no_corr rest1) ;
@@ -935,6 +1302,35 @@ With all these new combinators, more interesting tests can be devised:
 ) ;
 ----
 
+.Parser library: trivial parsers and utilities
+[source,ml]
+----
+let string s =
+  let rec loop i =
+    if i >= String.length s then return ()
+    else (
+      (item ~what:s s.[i]) -- (loop (i+1))
+    ) in
+  loop 0
+
+let replace x _ = x
+
+let anything corr rest =
+  ct_bind (take rest) (function
+    | EndOfStream, _rest' -> ct_return []
+    | Item (tok, _pos), rest' -> ct_return [ tok, corr, rest' ])
+----
+
+Notice that +anything+ cannot really fail.
+
+.Parser signatures
+[source,ml]
+----
+val string : string -> (char, unit, 'c) t
+val replace : 'a -> 'b -> 'a
+val anything : ('a, 'a, 'c) t
+----
+
 == Miscellaneous
 
 === Type generalization
@@ -945,19 +1341,19 @@ Let's get back to why we haven't defined +none+ simply as +let none = return
 ----
 # let none = return ();;
              ^^^^^^^^^
-Error: The type of this expression, '_a -> '_b -> (unit * '_a * '_b) list,
+Error: The type of this expression, ('_a, unit, '_b) t,
        contains type variables that cannot be generalized
 ----
 
 This is actually a limitation of OCaml compiler. Here is what's happening:
 normally, in an expression like +let name = expr+, +expr+ will be typed first,
-leading in this case where +expr+ is actually +return ()+ to the type +`_a ->
-`_b -> (unit * '_a * '_b) list+ (where +'_a+ and +'_b+ are ``weak types''
-(refer to the definition of +return+: it's merely a function of 3 parameters
-returning a list of the triplet of these 3 parameters). Once +expr+ is typed,
-OCaml follow this rule: if +expr+ is a function (as in +function ... ->+), a
-constant or an identifier then generalize the weak types into universal types
-(the more familiar +'a+, +'b+ etc). If +erpx+ is anything fancier, such as a
+leading in this case where +expr+ is actually +return ()+ to the type +(`_a,
+unit, '_b) t+ (where +'_a+ and +'_b+ are ``weak types'' (refer to the
+definition of +return+: it's merely a function of 3 parameters returning a list
+of the triplet of these 3 parameters). Once +expr+ is typed, OCaml follow this
+rule: if +expr+ is a function (as in +function ... ->+), a constant or an
+identifier then generalize the weak types into universal types (the more
+familiar +'a+, +'b+ etc). If +erpx+ is anything fancier, though, such as a
 partial application as is the case here, then do not generalize.
 
 If instead we had +let name params... = expr+ then, given it's syntactic sugar
@@ -968,12 +1364,12 @@ So we have to make this looks more like a function, by making explicit at least
 one parameter (a process famously known under the tickling name
 ``eta-expansion'').
 
-This feel arbitrary and it is ; aparently this is one of the minor disadvantage
-of a typing rules that has plenty of other advantages such as making something
-already quite complex much simpler. See the OCaml FAQ (TODO: link) for more
-details.
+This feels arbitrary because it is ; apparently this is one of the minor
+disadvantage of a typing rules that has plenty of other advantages such as
+making something already quite complex much simpler. See the OCaml FAQ (TODO:
+link) for more details.
 
-This is unfortunately going to hit us a lot when definin parser combinators
+This is unfortunately going to hit us a lot when defining parser combinators
 because we'd like to get away with the many meaningless and repetitive
 parameters which presence just obfuscate the intent of the code. C'est la vie.
 
@@ -982,7 +1378,7 @@ parameters which presence just obfuscate the intent of the code. C'est la vie.
 We still have to provide an implementation for our set of fixed maximum size.
 The simplest implementation is that of a list with a current size:
 
-.BoundedSet: type
+.BoundedSet.ml: type
 [source,ml]
 ----
 type 'a t =
@@ -993,7 +1389,7 @@ type 'a t =
 
 With the trivial constructor:
 
-.BoundedSet: constructor
+.BoundedSet.ml: constructor
 [source,ml]
 ----
 let make max_size =
@@ -1002,7 +1398,7 @@ let make max_size =
 
 And the only two operations we've met so far:
 
-.BoundedSet: operations
+.BoundedSet.ml: operations
 [source,ml]
 ----
 let is_full t = t.size >= t.max_size
@@ -1016,13 +1412,13 @@ let add t x =
 
 If there is something annoying about OCaml it's the lack of default printers
 for types. +Batteries+ provides +dump+ but it is oblivious to constructors so
-the result is not pretty. So let's write our own.
+the result is not pretty. So let's write our own printers.
 
-It would be best to provide formatters instead of mere printers to benefit from
-automatic typesetting but unfortunately +Batteries+ support for those is
+It would be best to provide formatters instead of mere printers to benefit
+from automatic typesetting but unfortunately +Batteries+ support for those is
 minimal so it's better to forget about formatters to cut down on typing.
 
-.BoundedSet: printer
+.BoundedSet.ml: printer
 [source,ml]
 ----
 open Batteries
@@ -1031,14 +1427,14 @@ let print print_value fmt t =
   List.print print_value fmt t.items
 ----
 
-.Corrections: printers
+.Corrections.ml: printers
 [source,ml]
 ----
 open Batteries
 
 let print_position print_coord fmt = function
-  | EOF -> String.print fmt "end of input"
-  | Coord c -> print_coord fmt c
+  | EndOfStream -> String.print fmt "end of input"
+  | Item c -> print_coord fmt c
 
 let print_correction print_coord fmt (pos, msg) =
   Printf.fprintf fmt "%s at %a"
@@ -1049,89 +1445,61 @@ let print_corrections print_coord fmt corr =
   BoundedSet.print (print_correction print_coord) fmt corr
 ----
 
-.Parsers: printers
+.Parser library: printers
 [source,ml]
 ----
-let print_result print_input print_coord print_output fmt (x, corr, rest) =
-  Printf.fprintf fmt "(output=%a,corr=%a,rest=%a)"
+let print_result print_coord print_output fmt (x, corr, _rest) =
+  Printf.fprintf fmt "(output=%a,corrections=%a)"
     print_output x
     (print_corrections print_coord) corr
-    (List.print (fun fmt (tok, _pos) -> print_input fmt tok)) rest
 ----
 
+.Parser signatures
+[source,ml]
+----
+val print_result : ('o BatInnerIO.output -> ('a * 'c) -> unit) ->
+                   ('o BatInnerIO.output -> 'b -> unit) ->
+                   'o BatInnerIO.output ->
+                   ('a, 'b, 'c) result -> unit
+----
 
-== Parsing Perl
+== Parsing usual things
 
-Even if we've chosen a different strategy to parse Perl than perl itself,
-staying close from perl own parser will guide us through its dense syntax, will
-help us be exhaustive and last but not least will provide us with names for the
-various syntactic constructs. There is no other somewhat formal description of
-the grammar anyway.  Amusingly, the Perl official documentation refers to
-``expressions'' and ``statements'' in many places but never defines those.
+It might come handy to have some ready made parsers for common things such
+as words, numbers, etc... We will regroup those in a +Usual+ module, again
+offering a functor:
 
-Therefore, with little edition, here is the _yacc_ grammar from +perly.y+:
+.Usual.ml: Parsers for usual things
+[source,ml]
+----
+open Batteries
+module Make (P : Parsers.S) =
+struct
+  open P
+  (* ...usual parsers... *)
+end
+----
 
-Perl modules (and code blocks) consist of a sequence of `statements`:
-
-- stmtseq: stmtseq fullstmt
-
-- fullstmt: LABEL* barestmt
-- barestmt: PLUGSTMT | FORMAT ... | SUB ... | PACKAGE ... | USE ...
-  | IF (...) ... | UNLESS ... | GIVEN ... | WHEN... | DEFAULT... | WHILE...
-  | UNTIL ... | FOR ... | block ... | sideff ';' | ';'
-
-where sideff is anything that can have a side effect:
-
-- sideff: expr | expr IF ... | expr UNLESS ... | expr WHILE ... | expr UNTIL ...
-  | expr FOR ... | expr when ...
-
-- expr: expr '&&' expr | expr '||' expr | listexpr
-- listexpr: term | listexpr ',' term || listexpr ','
-
-and a term being, intuitively, anything with a value:
-
-- term: termunop | termbinopt | termternaryop | anonymous immediate array, hash or function
-  | DO filename | DO block | '\' term | MY ... | LOCAL ... | '(' term ')' | QWLIST | '(' ')'
-  | scalar | '*' WORD | '%' WORD | '@' WORD | '$#' WORD | '$#' '{' term '}' | subscript
-  | slices | kvslices | '&' WORD ( '(' ( expr )? ')' )? | subname optlistexpr
-  '@' '{' term '}' | and friends | GOTO | LAST | DUMP | and friends | REQUIRE term?
-  | YADAYADA | listop | ...
-- termunop: all kind of unary operators applied to terms
-- termbinopt: all kind of binary operators applied to terms
-- termternaryop: term '?' term ':' term
-
-We will divide this in four modules, bottom to top:
-
-- PerlImm,
-- PerlTerms,
-- PerlStmts and
-- PerlModules.
-
-=== Immediate values
-
-Now let's try to write parsers for Perl simplest of immediate values, scalars.
-
-==== Numbers
-
-What OCaml type to encode perl integers?
+...that we will test along with the +Parsers+ module:
 
 .other tested modules
 [source,ml]
 ----
-open PerlImm
+module SimpleUsual = Usual.Make (P)
+open SimpleUsual
 ----
 
-Notice that a simple base 10 integer number must start with a non 0 (otherwise
-it's octal).  We make no exception for the single digit '0' which we will parse
-as octal.
+=== Numbers
 
-.PerlImm: numbers
+We will try to follow the most common conventions for parsing numbers.
+Notice that a simple base 10 integer number must start with a non 0
+(otherwise it's octal).  We make no exception for the single digit '0' which
+we will parse as octal.
+
+.usual parsers: integers
 [source,ml]
 ----
-open Batteries
-open Parsers
-
-type integer = Int.t (* FIXME *)
+type integer = Int.t (* or maybe not? *)
 
 let decimal_digit corr =
   range '0' '9' "digit" corr
@@ -1148,6 +1516,8 @@ let num_of_char c =
   else if cc >= Char.code 'A' && cc <= Char.code 'F' then
     cc - Char.code 'A' + 10
   else invalid_arg "c"
+
+let underscore corr = item '_' corr
 
 let unsigned_decimal_number corr rest =
   let digits corr = several ~sep:none decimal_digit corr in
@@ -1171,10 +1541,11 @@ let decimal_number corr =
 We have made +num_of_char+ accept hexadecimal digits in foresight.
 
 Octals, hexadecimal and binary numbers are then build similarly: a mandatory
-prefix, and some digits interleaved with underscores. Notice that only the prefix is
-mandatory and '0x' for instance is a valid immediate (representing zero of course).
+prefix, and some digits interleaved with underscores. Notice that only the
+prefix is mandatory and '0x' for instance is a valid immediate (representing
+zero of course), as in perl.
 
-.PerlImm: non decimal integers
+.usual parsers: non decimal integers
 [source,ml]
 ----
 let non_decimal_integer base prefix digit corr =
@@ -1215,9 +1586,9 @@ let binary_number corr =
    signed Int.neg) corr
 ----
 
-Finally, this parser can parse all kind of Perl immediate integers:
+Finally, this parser can parse all kinds of integers seen so far:
 
-.PerlImm: any integer
+.usual parsers: any integer
 [source,ml]
 ----
 let integer corr =
@@ -1252,7 +1623,7 @@ let integer corr =
     List.iter (fun (input, output) ->
       assert_same_results Int.print
         [output, no_corr, []]
-        ((integer +- eof "char") no_corr (input_of_string input)))
+        ((integer +- eof "char") no_corr (stream_of_string input)))
 ) ;
 "not decimal number immediate" >:: (
   fun _ctx ->
@@ -1261,20 +1632,19 @@ let integer corr =
     List.iter (fun input ->
       assert_same_results Int.print
         []
-        ((integer +- eof "char") no_corr (input_of_string input)))
+        ((integer +- eof "char") no_corr (stream_of_string input)))
 ) ;
 ----
 
 The syntax for floating point numbers is more _perly_.  Indeed, in additional
 to the usual decimal and scientific notations, Perl allows hexadecimal floating
-point, with a power of two as the exponent (and a "p" instead of an"e" to
-introduce the exponent, for obvious reason). But this is not allowed in perl
-prior to version ...TBD...
+point, with a power of two as the exponent (and a "p" instead of an "e" to
+introduce the exponent, for obvious reason).
 
 Also, notice that you can omit either the integer or the fractional part but
 not both.
 
-.PerlImm: floating point
+.usual parsers: floating point
 [source,ml]
 ----
 let fractional_part inv_base digit =
@@ -1324,13 +1694,13 @@ let floating_point corr =
     List.iter (fun (input, output) ->
       assert_same_results Float.print
         [output, no_corr, []]
-        ((floating_point +- eof "char") no_corr (input_of_string input)))
+        ((floating_point +- eof "char") no_corr (stream_of_string input)))
 ) ;
 ----
 
 And finally the function that reads any immediate number:
 
-.PerlImm: number
+.usual parsers: any number
 [source,ml]
 ----
 type number = Int of integer
@@ -1340,437 +1710,53 @@ let number corr =
    (floating_point >>: fun x -> Float x)) corr
 ----
 
-==== Strings
+=== Character types
 
-Although basic string notation are similar to what is implemented in many other
-languages, Perl strings are harder to parse because they require a context for
-the automatic quoting of lists, anything "not too complicated" inside curly
-braces or first operands of +=>+. In fact, any bare words that is neither a
-keyword not a function call is actually a string. To parse a bare word as a
-string you therefore need to know all possible function names, which is not
-going to happen before you are able to actually run that code. Consequently
-we will have a special type of token for bare words, remembering that they can
-be either function calls or strings.
+It is common to check for various classes of characters: blanks, numerics,
+alphanumerics, newlines...
 
-Other peculiarity: the seldom used v-string notation, which interpretation
-depends on its location and length (and, in theory, on perl versions).
-
-Also, despite one of our goal being to interpret strings as much as possible
-including in the presence of +eval+, we will make no such attempt in the first
-stage of parsing and will wait until much later to run the interpolation
-process (Remember: a single run of interpolation!)
-
-Let's start with the basics: the non interpolated string (aka. single quoted
-string in which no replacement take place).  This is basically any characters
-between single quotes, including new lines. The backslash can escape single
-quote and backslash, but any other backslash represents merely itself (ie.
-``\a'' encodes nothing more than a ``\'' followed by ``a'').
-
-.PerlImm: non-interpolated strings
+.usual parsers: blanks
 [source,ml]
 ----
-type string =
-    NoInterpString of String.t
-  (* ...other perl string types... *)
+let blank corr =
+  cond "space" (fun c -> c = ' ' || c = '\t') ' ' corr
 
-let backslash corr = item ~what:"backslash" '\\' corr
-let single_quote corr = item ~what:"single quote" '\'' corr
-
-let single_quoted_character corr =
-  ((backslash -+ backslash)    |||
-   (backslash -+ single_quote) |||
-   (backslash -+ cond "escaped character" (fun c->
-     if PerlPersona.allow_any_escaped_char_in_single_quoted_string
-     then c <> '\\' && c <> '\''
-     else false) 'n') |||
-   (cond "character" (fun c ->
-     c <> '\\' && c <> '\'' &&
-     (if PerlPersona.allow_newlines_in_quoted_strings then true
-      else c <> '\n' (* actual newline not "\n" sequence *))) 'x')) corr
-
-let single_quoted_string corr =
-  (single_quote -+ repeat ~sep:none single_quoted_character +- single_quote >>:
-   fun s -> NoInterpString (String.of_list s)) corr
-----
-
-With that module that we will use to personalize our parser behavior to mimic various Perl versions:
-
-.PerlPersona: some parameters to customize parser behavior
-[source,ml]
-----
-(* Temporary. *)
-let allow_any_escaped_char_in_single_quoted_string = true
-let allow_newlines_in_quoted_strings = true
-----
-
-TODO: replace this with a module that's set to a given implementation of the
-PERL_PERSONALITY signature.
-
-Interpolated strings, aka double quoted strings, differs in how the backslash is handled.
-There, many backslash sequences are recognized, and any unknown backslash sequence is an error.
-
-.other perl string types
-[source,ml]
-----
-| InterpString of String.t
-----
-
-.PerlImm: interpolated strings
-[source,ml]
-----
-let double_quote corr = item ~what:"double quote" '"' corr
-
-let hexadecimal_digit_value corr =
-  (hexadecimal_digit >>: num_of_char) corr
-
-let double_quoted_character corr =
-  (backslash -+ (
-      backslash    |||
-      single_quote |||
-      double_quote |||
-      (cond_map "escaped character" (function
-        | 'f' -> Some '\014'
-        | 'n' -> Some '\n'
-        | 'r' -> Some '\r'
-        | 't' -> Some '\t'
-        | _ -> None) 'a') |||
-      (item ~what:"hexadecimal prefix" 'x' -+
-       hexadecimal_digit_value ++ hexadecimal_digit_value >>:
-       fun (d1, d2) -> Char.chr (d1*16 + d2)) (* TODO: \cX for control characters *)
-   ) |||
-   cond "character" (fun c ->
-     c <> '"' && c <> '\\' &&
-     (if PerlPersona.allow_newlines_in_quoted_strings then true
-      else c <> '\n' (* actual newline not "\n" sequence *))) 'x') corr
-
-let double_quoted_string corr =
-  (double_quote -+ repeat ~sep:none double_quoted_character +- double_quote >>:
-   fun s -> InterpString (String.of_list s)) corr
-----
-
-Notice the introduction of +cond_map+ which is a +cond+ that returns an
-optional value instead of a mere boolean:
-
-.Parsers: cond_map
-[source,ml]
-----
-let cond_map msg f x corr rest =
-  let res, chg = match rest with
-    | [] ->
-      [], [x, change_at corr EOF msg, rest]
-    | (tok, pos)::rest' ->
-      (match f tok with
-       | Some v -> [v, corr, rest'], []
-       | None   -> [], [x, change_at corr (Coord pos) msg, rest']) in
-  if BoundedSet.is_full corr || chg = [] then res
-  else List.rev_append res chg
-----
-
-from which we can write a simpler +cond+ parser:
-
-.Parsers: the cond parser, revisited
-[source,ml]
-----
-let cond msg f =
-  cond_map msg (fun c -> if f c then Some c else None)
-----
-
-TODO: in portia, an definition starting with same name a one that already
-exist, followed by a coma and something should replace it in the output instead
-of been appended to it.
-
-And finally the back-quoted string, which is for now exactly as the double
-quoted string:
-
-.other perl string types
-[source,ml]
-----
-| ExecedString of String.t
-----
-
-.PerlImm: backquoted strings
-[source,ml]
-----
-let back_quote corr = item ~what:"back-quote" '`' corr
-
-let back_quoted_string corr =
-  (back_quote -+ repeat ~sep:none double_quoted_character +- back_quote >>:
-   fun s -> ExecedString (String.of_list s)) corr
-----
-
-
-Version strings are sequence of integers separated by dot and usually prefixed
-by ``v'' (mandatory when there are at least 3 numbers -- when there are only
-two of course this is a fractional number).
-
-.PerlImm: v-strings
-[source,ml]
-----
-let vstring corr =
-  let dot = item ~what:"vstring separator" '.' in
-  (item ~what:"vstring prefix" 'v' -+ several ~sep:dot decimal_number |||
-   repeat ~sep:dot ~min:3 decimal_number >>: fun nums ->
-     let l = List.length nums in
-     let s = String.create l in
-     List.iteri (fun i n ->
-       s.[i] <- Char.chr n (* TODO: non ASCII characters *)) nums ;
-     NoInterpString s
-   ) corr
-----
-
-Which we'd better write tests for:
-
-.PerlImm: printers
-[source,ml]
-----
-let print_string fmt = function
-  | NoInterpString s -> Printf.fprintf fmt "'%s'" s
-  | InterpString s   -> Printf.fprintf fmt "\"%s\"" s
-  | ExecedString s   -> Printf.fprintf fmt "`%s`" s
-  (* ...other printers for immediate strings... *)
-----
-
-.tests
-[source,ml]
-----
-"string immediate" >:: (
-  fun _ctx ->
-    assert_same_results print_string
-      [NoInterpString "glop", no_corr, []]
-      (single_quoted_string no_corr (input_of_string "'glop'"))
-) ;
-"vstring immediate" >:: (
-  fun _ctx ->
-    assert_same_results print_string
-      [NoInterpString "A", no_corr, []]
-      ((vstring +- eof "number") no_corr (input_of_string "v65")) ;
-    assert_same_results print_string
-      [NoInterpString "AB", no_corr, []]
-      ((vstring +- eof "number") no_corr (input_of_string "v65.66")) ;
-    assert_same_results print_string
-      [NoInterpString "ABC", no_corr, []]
-      ((vstring +- eof "number") no_corr (input_of_string "v65.66.67")) ;
-    assert_same_results print_string
-      [NoInterpString "ABC", no_corr, []]
-      ((vstring +- eof "number") no_corr (input_of_string "65.66.67")) ;
-) ;
-----
-
-Finally some special literals are predefined strings:
-
-.other perl string types
-[source,ml]
-----
-| FileString
-| LineString
-| PackageString
-| SubString
-| DataString of String.t
-----
-
-.other printers for immediate strings
-[source,ml]
-----
-| FileString    -> Printf.fprintf fmt "__FILE__"
-| LineString    -> Printf.fprintf fmt "__LINE__"
-| PackageString -> Printf.fprintf fmt "__PACKAGE__"
-| SubString     -> Printf.fprintf fmt "__SUB__"
-| DataString _s -> Printf.fprintf fmt "__DATA__"
-----
-
-.PerlImm: special predefined string literals
-[source,ml]
-----
-let predefined_string corr =
-  ((string "__FILE__"    >>: replace FileString)    |||
-   (string "__LINE__"    >>: replace LineString)    |||
-   (string "__PACKAGE__" >>: replace PackageString) |||
-   (string "__SUB__"     >>: replace SubString)     |||
-   (string "__DATA__" -+ repeat ~sep:none anything +- eof "DATA"
-                         >>: fun l ->
-                               DataString (String.of_list l))) corr
-----
-
-with a few new combinators so trivial we couldn't have envisioned they'd turn useful:
-
-.Parsers: trivial parsers and utilities
-[source,ml]
-----
-let string s =
-  let rec loop i =
-    if i >= String.length s then return ()
-    else (
-      (item ~what:s s.[i]) -- (loop (i+1))
-    ) in
-  loop 0
-
-let replace x _ = x
-
-let anything corr = function
-  | [] -> []
-  | (tok,_pos)::rest' -> [tok, corr, rest']
-----
-
-Notice that +anything+ cannot really fail.
-
-Finally, here is our string parser:
-
-.PerlImm: string parser
-[source,ml]
-----
-let string corr =
-  (single_quoted_string |||
-   double_quoted_string |||
-   vstring              |||
-   predefined_string) corr
-----
-
-==== Any scalar values
-
-Here is the final parser for any scalar value, including ``undef'' which is the
-default value for uninitialized scalars and which can also be mentioned
-literally:
-
-.PerlImm: final scalar parser
-[source,ml]
-----
-type scalar = Undef
-            | String of string
-            | Number of number
-let scalar corr =
-  ((string >>: fun s -> String s) |||
-   (number >>: fun n -> Number n) |||
-   (Parsers.string "undef"
-           >>: replace Undef))  corr
-----
-
-=== Terms
-
-==== Terms and whitespaces
-
-White spaces are easy, we just have to remember that new lines and comments also
-act as white spaces:
-
-.PerlTerm: whitespaces
-[source,ml]
-----
-open Parsers
+let newline corr =
+  (optional ~def:'\r' (item ~what:"\\r" '\r') -+
+   item ~what:"end of line" '\n') corr
 
 let whitespace corr =
-  let ws corr =
-    (cond "space" (fun c ->
-      c = ' ' || c = '\t' || c = '\n') ' ') corr in
-  let eol corr =
-    (item ~what:"end of line" '\n') corr  in
-  let comment corr =
-    (item ~what:"comment" '#' +-
-     repeat_greedy ~sep:none (not eol) +-
-     eol) corr in
-  (repeat_greedy ~sep:none (ws ||| comment)) corr
+  repeat_greedy ~sep:none (blank ||| newline) corr
 
 let opt_whitespace corr =
   optional_greedy ~def:[] whitespace corr
 ----
 
 Notice we read greedily the whitespaces because we want to avoid a +whitespace
--- whitespace+ ambiguity and that we also have an +optional_greedy+ for the same
-reason.
+-- whitespace+ ambiguity. +optional_greedy+ is there for the same reason.
 
-==== Operations
-
-There are, mostly, two classes of operators: those which coerce their arguments
-into strings and those which coerce their arguments into numbers (note that the
-`boolean' operators belong to this category since booleans are just numbers in
-Perl).  But there are exceptions of course: the _DOR_ operator (defined-or,
-``//'') and the assignment operator do not force a context on their arguments,
-for instance, and works not only for scalars. The ternary operator coerce only
-its predicate but neither its consequent nor its alternative.
-
-Notice that, from the grammar standpoint, the assignment is a binary operator.
-
-Notice also that +cmp+ is a string operator, so that +9 cmp 10+ returns
-counter-intuitively +1+ since the character '9' is ``greater'' than the
-character '1'.
-
-Here we define only one type for all operators, which context (string or
-number) is given by a function, instead of defining two levels of constructors,
-in order to shorten the code - and the encoding of values.
-
-.PerlTerm: binary operators
+.usual parsers: other character classes
 [source,ml]
 ----
-type binop = EqOpString | GtOpString | LtOpString
-           | NeOpString | CmpOpString | DotOpString
-           | EqOpNumber | GtOpNumber | LtOpNumber
-           | NeOpNumber | GEOpNumber | LEOpNumber
-           | AddOp | SubOp | MulOp | DivOp
-           | ExpOp | ModOp | AssignOp
-           | LShiftOp | RShiftOp
-           | BitAndOp | BitOrOp | RangeOp
-           | AndOp | OrOp | DefOrOp (* // *)
-           | MatchOp (* =~ *)
-
-let binop corr =
-  ((string "eq"  >>: replace EqOpString)  |||
-   (string "gt"  >>: replace GtOpString)  |||
-   (string "lt"  >>: replace LtOpString)  |||
-   (string "ne"  >>: replace NeOpString)  |||
-   (string "cmp" >>: replace CmpOpString) |||
-   (string "."   >>: replace DotOpString) |||
-   (string "=="  >>: replace EqOpNumber)  |||
-   (string ">"   >>: replace GtOpNumber)  |||
-   (string "<"   >>: replace LtOpNumber)  |||
-   (string "!="  >>: replace NeOpNumber)  |||
-   (string ">="  >>: replace GEOpNumber)  |||
-   (string "<="  >>: replace LEOpNumber)  |||
-   (string "+"   >>: replace AddOp)       |||
-   (string "-"   >>: replace SubOp)       |||
-   (string "*"   >>: replace MulOp)       |||
-   (string "/"   >>: replace DivOp)       |||
-   (string "**"  >>: replace ExpOp)       |||
-   (string "%"   >>: replace ModOp)       |||
-   (string "="   >>: replace AssignOp)    |||
-   (string "<<"  >>: replace LShiftOp)    |||
-   (string ">>"  >>: replace RShiftOp)    |||
-   (string "&"   >>: replace BitAndOp)    |||
-   (string "|"   >>: replace BitOrOp)     |||
-   (string ".."  >>: replace RangeOp)     |||
-   (string "&&"  >>: replace AndOp)       |||
-   (string "||"  >>: replace OrOp)        |||
-   (string "//"  >>: replace DefOrOp)     |||
-   (string "=~"  >>: replace MatchOp)) corr
+let lowercase corr = range 'a' 'z' "lowercase" corr
+let uppercase corr = range 'A' 'Z' "uppercase" corr
+let letter corr = (lowercase ||| uppercase) corr
+let alphanum corr = (letter ||| decimal_digit) corr
 ----
 
-Unary operators are similar:
+=== Operations
 
-.PerlTerm: unary operators
-[source,ml]
-----
-type unop = MinusOp | PlusOp | NotOp | FlipOp
-          | PostIncOp | PostDecOp | PreIncOp | PreDecOp
+Operators are another frequent occurrence. Of course they tend more than
+character classes to depend on the problem at hand, but it's still useful to
+discuss them here if only to demonstrate how to deal with recursive rules.
 
-let unop_prefix corr =
-  ((item '-' >>: replace MinusOp)     |||
-   (item '+' >>: replace PlusOp)      |||
-   (item '!' >>: replace NotOp)       |||
-   (item '~' >>: replace FlipOp)      |||
-   (string "++" >>: replace PreIncOp) |||
-   (string "--" >>: replace PreDecOp)) corr
+Indeed, the straightforward way to define a parser for operations would rely on
+left recursion, which a combinatory parser can't do. Instead, we will have to
+_force_ _progress_ by defining a chain of terms and subterms in order of
+precedence.
 
-let unop_postfix corr =
-  ((string "++" >>: replace PostIncOp) |||
-   (string "--" >>: replace PostDecOp)) corr
-----
-
-And finally, the (only) ternary operator:
-
-Eventually, to define a term we will have to define recursively the many
-possible shapes a term can have.  Unfortunately we can not follow too closely
-perl own parser because of its heavy reliance on left recursion, which a
-combinatory parser can't do. Instead, we will have to _force_ _progress_ by
-defining a chain of terms and subterms in order of precedence.
-
-The principle of such a chain is to replace a left recursing definition such as:
+The principle of such a chain is to replace a left recursing definition such
+as:
 
 [source,ml]
 ----
@@ -1786,7 +1772,7 @@ let term2 corr = ((term3 +- higher_precedence_op ++ term3) ||| term3) corr
 (* etc... *)
 ----
 
-allowing recursion only after some input have been consumed:
+Allowing recursion only after some input have been consumed:
 
 [source,ml]
 ----
@@ -1821,7 +1807,7 @@ force the user of this +binary_ops_reducer+ function to `lift` the sub-term
 parser in order to return a singleton term instead (if the sub-terms and terms
 do not share a common type).
 
-.Parsers: binary operations with selected associativity
+.Parser library: binary operations with selected associativity
 [source,ml]
 ----
 let binary_ops_reducer ?(right_associative=false) ~op ~term ~sep ~reduce corr =
@@ -1838,7 +1824,19 @@ let binary_ops_reducer ?(right_associative=false) ~op ~term ~sep ~reduce corr =
      loop_lst fst lst) corr
 ----
 
-Let's test it:
+.Parser signatures
+[source,ml]
+----
+val binary_ops_reducer :
+  ?right_associative:bool ->
+  op:('a, 'o, 'c) t ->
+  term:('a, 'b, 'c) t ->
+  sep:('a, unit, 'c) t ->
+  reduce:('b -> 'o -> 'b -> 'b) ->
+  ('a, 'b, 'c) t
+----
+
+Let's see it in action:
 
 .tests
 [source,ml]
@@ -1860,7 +1858,7 @@ Let's test it:
     List.iter (fun (input_str, e1, e2) ->
       (* e1 is the expected result for left associative parsing and
          e2 for right associative parsing. *)
-      let input = input_of_string input_str in
+      let input = stream_of_string input_str in
       assert_same_results ~msg:"left assoc." binary_ops_reducer_test_result_print
         [e1, no_corr, []]
         ((binary_ops_reducer ~op ~term ~sep:none ~reduce ~right_associative:false
@@ -1877,9 +1875,10 @@ with type +binary_ops_reducer_test_result+ defined globally, as required by OCam
 .other global functions or types for testing
 [source,ml]
 ----
-type binary_ops_reducer_test_result = Term of Char.t
-                                    | Op of (binary_ops_reducer_test_result *
-                                             binary_ops_reducer_test_result)
+type binary_ops_reducer_test_result =
+    Term of Char.t
+  | Op of (binary_ops_reducer_test_result *
+           binary_ops_reducer_test_result)
 
 let rec binary_ops_reducer_test_result_print fmt = function
   | Term c ->
@@ -1935,399 +1934,14 @@ Let's also test the handling of precedence with a small calculator:
       "(1+3)*2",      8 ;
       "8/2/2",        2 ] |>
     List.iter (fun (input_str, exp) ->
-      let input = input_of_string input_str in
+      let input = stream_of_string input_str in
       assert_same_results Int.print
         [exp, no_corr, []]
         ((left_assoc_low_prec +- eof "term") no_corr input))
 ) ;
 ----
 
-Now that we are confident we can parse operators with any precedence and
-associativity despite using parser combinators, let's have a look at perl
-operators.  Here is a list of all operators in precedence order, along with the
-name we will give to the parser:
+Hopefully this example shed some confidence on parsing operators with any precedence and
+associativity despite using parser combinators.
 
-.Operators by precedence
-[cols="m,^,m",frame="topbot",options="header"]
-|===========================================================
-| operator    | associativity | parser
-| ->          | left          | deref_op
-| ++, --      | non           | pre_post_inc_dec
-| **          | right         | pow_op
-| ! ~ \ + -   | right         | unary_op
-| =~ !~       | left          | regexp_op
-| * / % x     | left          | mul_op
-| + - .       | left          | plus_op
-| << >>       | left          | shift_op
-| < > <= >= lt gt le ge | non           | cmp_op
-| == != <=> eq ne cmp ~~ | non          | eq_op
-| &           | left          | bitand_op
-| \| ^        | left          | bitor_op
-| &&          | left          | logand_op
-| \|\| //     | left          | logor_op
-| .. ...      | non           | range_op
-|  ?:         | right         | cond_op
-| = += -= *= etc. | right     | assign_op
-| goto last next redo dump | right       | loop_op
-| , =>        | left          | coma_op
-| list operators (rightwards) | right          | list_op
-| not         | right         | not_op
-| and         | left          | and_op
-| or xor      | left          | or_op
-|===========================================================
-
-Let's start with the unary, binary and ternary operations:
-
-.PerlTerm: term type and parser
-[source,ml]
-----
-type t = UnaryOp of unop * t
-       | BinaryOp of t * binop * t
-       | TernaryOp of t * t * t
-       (* ...other constructors for terms... *)
-(*
-let rec pre_post_inc_dec corr =
-  ((unop_prefix ++ pow_op  >>: fun (o,t) -> UnaryOp (o, t)) |||
-   (pow_op ++ unop_postfix >>: fun (t,o) -> UnaryOp (o, t)) |||
-   pow_op) corr
-
-and pow_op = ... *)
-----
-
-==== Scalar immediate
-
-Next on our list is the scalar. Thanks to PerlImm we do not have much to do:
-
-.other constructors for terms
-[source,ml]
-----
-| Scalar of PerlImm.scalar
-----
-
-.other syntaxes for terms
-[source,ml]
-----
-||| (PerlImm.scalar >>: fun s -> Scalar s)
-----
-
-==== Anonymous Array and Hash
-
-Arrays or hashes are mostly made of lists, which are made of expressions
-(+expr+ in perl parser), which are either lists of expressions or expressions
-combined with logical operators. Which is annoyingly left-recursive.
-
-.PerlTerm: expressions
-[source,ml]
-----
-(*let rec expr corr =
-  ((expr ...)) corr*)
-----
-
-==== Anonymous Function
-
-
-
-==== Variables and array lengths
-
-==== Subscripts and slices
-
-==== Reference
-
-==== Dereferences
-
-==== Lists and parentheses
-
-==== Function calls
-
-===== old style
-
-===== new style
-
-==== DO filename or block
-
-==== Goto, last, and friends
-
-==== Require
-
-==== My, Local...
-
-==== Yada yada and even more obscure terms
-
-==== Words: Identifiers, Keywords, Barewords...
-
-Half-strings half-keywords, ``barewords'' are the first monstrous beasts of
-Perl demonology.  Barewords are all word-like things that are not keywords.  In
-many contexts, barewords will be mere unquoted non-interpolated strings. Even
-an integer can be a bareword (between curly braces: in ``{42}'', +42+ is indeed
-a bareword that will be equivalent to the string +"42"+ not an integer - also
-before the auto-quoting operator +=>+ of course). Barewords are strings each
-time they are not function calls, which sometime can be determined only at
-runtime.
-
-Given barewords are defined to be any name that's not a keyword nor a function
-call, we must first define names, then keywords. We will leave function
-calls for later.
-
-First of all, like in many other programming language, names begin with a
-letter or an underscore and may optionally include any combination of letters,
-numbers, and underscores:
-
-.PerlTerm: names
-[source,ml]
-----
-open Batteries
-open Parsers
-
-let name corr =
-  let first_char corr =
-    (letter ||| underscore) corr in
-  let char corr =
-    (letter ||| PerlImm.decimal_digit ||| underscore) corr in
-  (first_char ++ repeat_greedy ~sep:none char >>: fun (h,tl) ->
-    String.of_list (h::tl)) corr
-
-let fully_qualified_name corr =
-  (several ~sep:(string "::") name) corr
-----
-
-with the general enough purpose functions that we can add to the base library of
-parsers:
-
-.Parsers: basic character recognition parsers
-[source,ml]
-----
-let lowercase corr = range 'a' 'z' "lowercase" corr
-let uppercase corr = range 'A' 'Z' "uppercase" corr
-let letter corr = (lowercase ||| uppercase) corr
-let underscore corr = item '_' corr
-----
-
-.tests
-[source,ml]
-----
-"valid names" >:: (
-  fun _ctx ->
-    [ "glop" ; "Glop" ; "_gl0p_" ] |>
-    List.iter (fun s ->
-      assert_same_results String.print
-        [s, no_corr, []]
-        (PerlTerm.name no_corr (input_of_string s)))
-) ;
-"invalid names" >:: (
-  fun _ctx ->
-    [ "0glop" ; " v" ; "" ] |>
-    List.iter (fun s ->
-      assert_same_results String.print
-        []
-        (PerlTerm.name no_corr (input_of_string s)))
-) ;
-----
-
-Let's now call ``identifier'' any name with a prefix:
-
-.PerlTerm: identifiers
-[source,ml]
-----
-type identifier_sigil = NoSigil
-                      | ScalarSigil | ArraySigil
-                      | HashSigil | FunctionSigil
-type identifier = identifier_sigil * string
-
-let identifier_sigil corr =
-  ((item ~what:"scalar sigil" '$'   >>: replace ScalarSigil) |||
-   (item ~what:"array sigil" '@'    >>: replace ArraySigil)  |||
-   (item ~what:"hash sigil" '%'     >>: replace HashSigil)   |||
-   (item ~what:"function sigil" '&' >>: replace FunctionSigil)) corr
-
-let identifier corr =
-  (optional ~def:NoSigil identifier_sigil ++ name) corr
-----
-
-Now let's try to recognize keywords:
-
-.PerlTerm: keywords
-[source,ml]
-----
-let keyword corr =
-  (string "if" ||| string "unless"   |||
-   string "while" ||| string "until" |||
-   string "else") corr
-----
-
-So that finally we can tell a bareword from a keyword:
-
-.PerlTerm: barewords
-[source,ml]
-----
-let bareword corr =
-  (check "not a keyword" (not keyword) -+ name) corr
-----
-
-.other constructors for terms
-[source,ml]
-----
-| Bareword of String.t
-----
-
-
-==== Lists
-
-Beside immediate scalar values and barewords, a term can also be a list,
-which is recursively made of other terms.
-
-List parsing is, as many Perl things, inconsequential. If the documentation
-insists that ``parentheses do not make lists, comas do'', the empty list in
-nonetheless represented as +()+.  But it is true that +(1,2,(3,4))+ is truly
-just +(1,2,3,4)+ (the second pair of parentheses does not introduce a sublist),
-as +(1,(),2)+ is just +(1,2)+, and that unless ordering of evaluation commands
-otherwise +(1,2,3)+ is equivalent as +1,2,3+.
-
-Notice that any coma can be an auto-quoting variant +=>+ instead, which (tries
-to) make the left item a string, and that the final coma (or auto-quoting
-separator) is optional.
-
-Given the recursive nature of lists we will define the +list+ parser and the
-+list_item+ parser as mutually recursive, and will let the +term+ and
-+whitespace+ parsers definition for later:
-
-.PerlTerm: list item
-[source,ml]
-----
-let left_parenth corr =
-  item ~what:"left parenthesis" '(' corr
-let right_parenth corr =
-  item ~what:"right parenthesis" ')' corr
-let coma corr =
-  item ~what:"coma" ',' corr
-let autoquoting_coma corr =
-  string "=>" corr
-
-let rec list_item corr =
-  (((term >>: List.singleton) |||
-    (left_parenth -+ list +- right_parenth))
-   +- opt_whitespace ++
-   ((coma >>: replace false) |||
-    (autoquoting_coma >>: replace true)) +-
-   opt_whitespace >>:
-   function [Bareword w], true -> [Scalar PerlImm.(String (NoInterpString w))]
-          | x, _ -> x) corr
-
-and term = string "todo"
-----
-
-Notice that the only case where the automatic quotation serves any purpose is when it's present after a bareword.
-
-Also, this +list_item+ parser always return a list (either with many
-terms as returned by the +list+ parser or with a single element if there
-was actually no sublist). All these sublists will have to be flattened in the
-+list+ parser. That's definitively not the most efficient way to write this
-parser but it makes it more readable.
-
-Notice also that to avoid infinite left recursion we must make sure of the
-presence of an opening parenthesis before recursing into +list+. The list
-parser itself will look for the optional presence of the parenthesis, just so
-that we can call it to parse a top-level lists.
-
-The +optional_greedy+ above is to avoid terminating a parser on an optional
-parser, which results in two possible result systematically, which the caller
-will not necessarily reduce if the next parser starts with the same optional
-parser. Indeed,
-
-[source,ml]
-----
-optional p ++ optional p
-----
-
-would yield 2 equivalent results.
-
-Given this +list_item+, now we can add the +list+ parser that will return parsed (into an OCaml list of
-terms) with:
-
-.PerlTerm: lists
-[source,ml]
-----
-and list corr =
-  (((left_parenth -+ repeat ~sep:none list_item +- right_parenth) |||
-    (repeat ~sep:none list_item)                                  |||
-    empty_list) >>: List.flatten) corr
-and empty_list corr =
-  ((left_parenth -- right_parenth) >>: replace []) corr
-----
-
-That we cannot test until we define +term+ and +whitespace+.
-
-==== Anonymous arrays
-
-Array references are really nothing more than a list within brackets:
-
-.PerlTerm: anonymous arrays
-[source,ml]
-----
-let left_bracket corr =
-  item ~what:"left bracket" '[' corr
-let right_bracket corr =
-  item ~what:"right bracket" ']' corr
-
-let anonymous_array corr =
-  (left_bracket -- opt_whitespace -+
-   list +-
-   opt_whitespace +- right_bracket) corr
-----
-
-==== Anonymous Hashes
-
-And the same goes for anonymous hashes, with curly brackets:
-
-.PerlTerm: anonymous hashes
-[source,ml]
-----
-let left_curly_bracket corr =
-  item ~what:"left curly bracket" '{' corr
-let right_curly_bracket corr =
-  item ~what:"right curly bracket" '}' corr
-
-let anonymous_hash corr =
-  (left_curly_bracket -- opt_whitespace -+
-   list +-
-   opt_whitespace +- right_curly_bracket) corr
-----
-
-=== Statements
-
-The simplest statement is known to be a single term (ended with a
-semicolon), supposedly evaluated for its side-effects:
-
-.PerlStmt: what is this?
-[source,ml]
-----
-open Parsers
-let term = PerlTerm.term
-
-let statement corr =
-  (term
-   (* ...other statements... *)) corr
-----
-
-==== Ellipsis
-
-The easiest of the statements is the ellipsis, a placeholder for unimplemented code.
-Notice that ellipsis can also be a binary operator in some occasions.
-
-.PerlStmt: ellipsis
-[source,ml]
-----
-open Parsers (* again *)
-let ellipsis corr =
-  (if PerlPersona.ellipsis_is_a_valid_statement
-   then string "..."
-   else fail) corr
-----
-
-.PerlPersona: more options
-[source,ml]
-----
-let ellipsis_is_a_valid_statement = true;
-----
-
-=== Modules
 

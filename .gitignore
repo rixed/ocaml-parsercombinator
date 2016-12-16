@@ -24,15 +24,9 @@ autom4te.cache
 oUnit-anon.cache
 doc/
 BoundedSet.ml
-Combinators.ml
 Corrections.ml
 Parsers.ml
+Usual.ml
+Misc.ml
 README.html
 oUnit-tests*
-PerlImm.ml
-PerlPersona.ml
-PerlWord.ml
-PerlOp.ml
-PerlTerm.ml
-PerlStmt.ml
-tests.ml
