@@ -58,9 +58,11 @@ distclean: clean
 clear:
 	sed -i.bak -e 's/[ 	]\+$$//' $(wildcard *.adoc)
 
-install: $(ARCHIVE) $(XARCHIVE)
-	if test -f "$(XARCHIVE)" ; then extra="$(XARCHIVE) "`basename "$(XARCHIVE)" .cmxa`.a ; fi ; \
-	@OCAMLFIND@ install "$(PKG_NAME)" *.cmi "$(ARCHIVE)" META $$extra
+install: $(ARCHIVES) $(XARCHIVES)
+	for xarch in $(XARCHIVES) ; do \
+		if test -f "$$xarch" ; then extra="$$extra $$xarch "`basename "$$xarch" .cmxa`.a ; fi ; \
+	done ; \
+	@OCAMLFIND@ install "$(PKG_NAME)" *.cmi $(ARCHIVES) META $$extra
 
 uninstall:
 	@OCAMLFIND@ remove $(PKG_NAME)

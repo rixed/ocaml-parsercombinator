@@ -21,7 +21,7 @@ conf-check.old
 /make.common
 /config.status
 autom4te.cache
-oUnit-anon.cache
+oUnit-*
 doc/
 BoundedSet.ml
 Corrections.ml
@@ -31,4 +31,4 @@ Misc.ml
 Positions.ml
 LwtConfig.ml
 README.html
-oUnit-tests*
+helpers.cache
