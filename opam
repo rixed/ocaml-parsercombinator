@@ -14,7 +14,7 @@ depends: [
   "ocamlfind"
   "batteries"
   "ounit"
-  "portia" {build & >= 1.0}
+  "portia" {build & >= "1.0"}
   "lwt"
 ]
 depexts: [
