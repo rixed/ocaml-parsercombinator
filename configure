@@ -583,7 +583,7 @@ PACKAGE_URL=''
 
 ac_subst_vars='LTLIBOBJS
 LIBOBJS
-OCAML_PKG_batteries_portia
+OCAML_PKG_batteries_portia_lwt
 OCAMLFIND
 OCAMLBUILD
 OCAMLDOC
@@ -3658,17 +3658,17 @@ if test "$OCAMLFIND" = "no"; then
 fi
 
 
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for OCaml findlib package batteries portia" >&5
-$as_echo_n "checking for OCaml findlib package batteries portia... " >&6; }
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for OCaml findlib package batteries portia lwt" >&5
+$as_echo_n "checking for OCaml findlib package batteries portia lwt... " >&6; }
 
   unset found
   unset pkg
   found=no
-  for pkg in batteries portia  ; do
+  for pkg in batteries portia lwt  ; do
     if $OCAMLFIND query $pkg >/dev/null 2>/dev/null; then
       { $as_echo "$as_me:${as_lineno-$LINENO}: result: found" >&5
 $as_echo "found" >&6; }
-      OCAML_PKG_batteries_portia=$pkg
+      OCAML_PKG_batteries_portia_lwt=$pkg
       found=yes
       break
     fi
@@ -3676,7 +3676,7 @@ $as_echo "found" >&6; }
   if test "$found" = "no" ; then
     { $as_echo "$as_me:${as_lineno-$LINENO}: result: not found" >&5
 $as_echo "not found" >&6; }
-    OCAML_PKG_batteries_portia=no
+    OCAML_PKG_batteries_portia_lwt=no
   fi
 
 

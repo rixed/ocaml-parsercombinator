@@ -1,5 +1,14 @@
-description = "Dead simple combinatoric parser"
-version = "0.1"
-requires = "batteries ounit"
-archive(byte) = "parserCombinator.cma"
-archive(native) = "parserCombinator.cmxa"
+description = "Resumable combinatoric parser with error detection"
+version = "0.2"
+
+package "common" (
+  requires = "batteries ounit"
+  archive(byte) = "parsercombinator.cma"
+  archive(native) = "parsercombinator.cmxa"
+)
+
+package "lwt" (
+  archive(byte) = "parsercombinator-lwt.cma"
+  archive(native) = "parsercombinator-lwt.cmxa"
+  requires = "parsercombinator.common lwt.unix lwt.ppx"
+)

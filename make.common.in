@@ -8,87 +8,24 @@ DOCDIR    ?= doc/
 WARNS      = Ael-31-41-44-45
 override OCAMLOPTFLAGS += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir) -inline 9 -S
 override OCAMLFLAGS    += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir)
-CAMLINCLUDE = $(shell @OCAMLFIND@ printconf stdlib)
-override CPPFLAGS      += -I $(CAMLINCLUDE) -I $(top_srcdir) -D_GNU_SOURCE
-override CFLAGS        += -O2 -std=c99 -W -Wall
 
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 
-.PHONY: opt clean clean-spec install uninstall reinstall clear dep dep-spec check inline-tests unit-tests
-
-SOURCES_ML = $(filter %.ml, $(SOURCES))
-SOURCES_MLI = $(filter %.mli, $(SOURCES))
-OBJECTS  = $(SOURCES_ML:.ml=.cmo)
-XOBJECTS = $(OBJECTS:.cmo=.cmx)
-ifdef PKG_NAME
-ARCHIVE  = $(PKG_NAME).cma
-XARCHIVE = $(ARCHIVE:.cma=.cmxa)
-
-$(ARCHIVE): $(SOURCES_MLI:.mli=.cmi) $(OBJECTS)
-	$(OCAMLC)   -a -o $@ $(SYNTAX) -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $(OBJECTS) $(LIBS)
-$(XARCHIVE): $(SOURCES_MLI:.mli=.cmi) $(XOBJECTS)
-	$(OCAMLOPT) -a -o $@ $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $(XOBJECTS) $(LIBS)
-install: $(ARCHIVE) $(XARCHIVE) install-spec
-	if test -f "$(XARCHIVE)" ; then extra="$(XARCHIVE) "`basename "$(XARCHIVE)" .cmxa`.a ; fi ; \
-	@OCAMLFIND@ install "$(PKG_NAME)" *.cmi "$(ARCHIVE)" META $$extra
-
-uninstall: uninstall-spec
-	@OCAMLFIND@ remove $(PKG_NAME)
-reinstall: uninstall install
-endif
-
 # Common rules
-.SUFFIXES: .mll .mly .ml .mli .cmo .cmi .cmx .cmxs .opt .byte
+.SUFFIXES: .ml .mli .cmo .cmi .cmx .cmxs .annot
 
-EXTRALIBS =
-
-.cmo.byte: $(ARCHIVE)
-	$(OCAMLC)   -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) $(ARCHIVE) $(EXTRALIBS) -linkpkg $(OCAMLFLAGS) $^
-
-test.opt: $(XARCHIVE) # Dependancy on next line aparently does nothing?
-.cmx.opt: $(XARCHIVE)
-	$(OCAMLOPT) -o $@ $(SYNTAX) -package "$(REQUIRES)" -ccopt -L$(top_srcdir) $(XARCHIVE) $(EXTRALIBS:.cma=.cmxa) -linkpkg $(OCAMLOPTFLAGS) $^
-
-.ml.cmo:
+%.annot: %.ml
 	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
 
-.mli.cmi:
+%.cmo: %.ml
 	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
 
-.ml.cmx:
+%.cmi: %.mli
+	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
+
+%.cmx: %.ml
 	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) -c $<
 
-.ml.cmxs:
+%.cmxs: %.ml
 	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) -o $@ -shared $<
-
-.mll.ml:
-	$(OCAMLLEX) $<
-
-.mly.ml:
-	$(OCAMLYACC) $<
-
-.mly.mli:
-	$(OCAMLYACC) $<
-
-unit-tests: test.opt
-	@echo "Running other unit tests"
-	@./test.opt
-check: inline-tests unit-tests check-spec
-
-# Clean up
-clean: clean-spec
-	rm -f *.cm[ioxa] *.cmxa *.cmxs *.a *.s *.o *.byte *.opt .depend *.annot
-
-# Dependencies
-.depend: $(SOURCES)
-	$(OCAMLDEP) $(SYNTAX) -package "$(REQUIRES)" $(SOURCES_ML) $(SOURCES_MLI) > $@
-
-dep: dep-spec
-	@rm -f .depend
-	$(MAKE) .depend
-
-clear:
-	sed -i.bak -e 's/[ 	]\+$$//' $(wildcard *.adoc)
-
--include .depend

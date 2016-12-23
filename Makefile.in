@@ -2,34 +2,22 @@
 top_srcdir = @top_srcdir@
 PKG_NAME = parsercombinator
 
+ARCHIVES = parsercombinator.cma parsercombinator-lwt.cma
+XARCHIVES = $(ARCHIVES:.cma=.cmxa)
+
 # First extract the code from README
 GEN_ARC_SOURCES = \
-	Misc.ml BoundedSet.ml Corrections.ml Parsers.ml Usual.ml
+	Misc.ml BoundedSet.ml Corrections.ml Parsers.ml Usual.ml \
+	Positions.ml
 
-GEN_SOURCES = $(GEN_ARC_SOURCES) test.ml
+GEN_SOURCES = $(GEN_ARC_SOURCES) LwtConfig.ml test.ml
 
 GEN_FILES = $(GEN_SOURCES) README.html
 
-SOURCES = $(GEN_ARC_SOURCES)
-C_SOURCES =
-LIBS =
+REQUIRES = batteries oUnit lwt.ppx
 
-# For test extraction but do not contribute to the lib:
-EXTRA_SOURCES =
-EXTRA_REQUIRES = portia
-
-EXAMPLES_BYTE =
-
-REQUIRES = batteries ounit
-
-EXAMPLES_BYTE =
-EXAMPLES_OPT = $(EXAMPLES_BYTE:.byte=.opt)
-EXAMPLES = $(EXAMPLES_BYTE) $(EXAMPLES_OPT)
-
-SYNTAX =
-
-.PHONY: all loc doc check-spec clean-spec dep-spec wc
-all: $(XARCHIVE) examples README.html README.annot
+.PHONY: all distclean clean clear loc doc wc install uninstall reinstall dep check unit-tests
+all: $(ARCHIVES) $(XARCHIVES) README.annot
 
 # Do not depend on $(GEN_SOURCES:.ml=.cmo) so that we get the .annot file
 # even when some file does not compile.
@@ -41,24 +29,44 @@ $(GEN_SOURCES): README.adoc
 
 include $(top_srcdir)/make.common
 
-opt: $(XARCHIVE)
-examples: $(XARCHIVE) $(EXAMPLES_OPT)
-$(EXAMPLES_BYTE): $(ARCHIVE)
-$(EXAMPLES_OPT): $(XARCHIVE)
+parsercombinator.cma: $(patsubst %.mli,%.cmo,$(filter %.mli, $(GEN_ARC_SOURCES))) $(patsubst %.ml,%.cmo,$(filter %.ml, $(GEN_ARC_SOURCES)))
+	$(OCAMLC)   -a -o $@ -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $(patsubst %.ml,%.cmo,$(filter %.ml, $(GEN_ARC_SOURCES)))
+parsercombinator.cmxa: $(patsubst %.mli,%.cmi,$(filter %.mli, $(GEN_ARC_SOURCES))) $(patsubst %.ml,%.cmx,$(filter %.ml, $(GEN_ARC_SOURCES)))
+	$(OCAMLOPT) -a -o $@ -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $(patsubst %.ml,%.cmx,$(filter %.ml, $(GEN_ARC_SOURCES)))
 
-#check.byte: $(ARCHIVE)
-#check.opt: $(XARCHIVE)
-#check-spec: check.byte
-#	@./check.byte || echo "custom checks FAILED"
-check-spec:
+parsercombinator-lwt.cma: LwtConfig.cmo
+	$(OCAMLC)   -a -o $@ -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $^
+parsercombinator-lwt.cmxa: LwtConfig.cmx
+	$(OCAMLOPT) -a -o $@ -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $^
 
-clean-spec:
-	$(RM) $(GEN_FILES)
+unit-tests: test.opt
+	@echo "Running other unit tests"
+	@./test.opt
+check: unit-tests
 
-dep-spec:
-	$(RM) $(GEN_SOURCES)
+test.cmx: $(XARCHIVES)
 
-install-spec:
+test.opt: test.cmx $(XARCHIVES)
+	$(OCAMLOPT) -o $@ -package "$(REQUIRES)" -ccopt -L$(top_srcdir) $(XARCHIVES) -linkpkg $(OCAMLOPTFLAGS) $^
+
+clean:
+	$(RM) *.cm[ioxa] *.cmxa *.cmxs *.a *.s *.o test.* .depend *.annot $(GEN_FILES)
+
+distclean: clean
+	$(RM) *.byte *.opt $(ARCHIVES) $(XARCHIVES)
+
+clear:
+	sed -i.bak -e 's/[ 	]\+$$//' $(wildcard *.adoc)
+
+install: $(ARCHIVE) $(XARCHIVE)
+	if test -f "$(XARCHIVE)" ; then extra="$(XARCHIVE) "`basename "$(XARCHIVE)" .cmxa`.a ; fi ; \
+	@OCAMLFIND@ install "$(PKG_NAME)" *.cmi "$(ARCHIVE)" META $$extra
+
+uninstall:
+	@OCAMLFIND@ remove $(PKG_NAME)
+
+reinstall: uninstall install
+
 
 .SUFFIXES: .html .adoc
 .adoc.html:
@@ -68,3 +76,14 @@ doc: README.html
 
 wc: README.adoc
 	@cat $^ | tr -d '[:punct:]' | tr ' ' '\n' | grep -v '^$$' | sort | uniq -c | sort -nr
+
+# Dependencies
+
+dep:
+	$(RM) $(GEN_SOURCES) .depend
+	$(MAKE) .depend
+
+.depend: $(GEN_SOURCES)
+	$(OCAMLDEP) -package "$(REQUIRES)" $(filter %.ml, $(GEN_ARC_SOURCES)) $(filter %.mli, $(GEN_ARC_SOURCES)) > $@
+
+-include .depend

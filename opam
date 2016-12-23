@@ -1,6 +1,6 @@
 opam-version: "1.2"
 name: "parsercombinator"
-version: "0.1"
+version: "0.2"
 maintainer: "rixed@free.fr"
 authors: "rixed@free.fr"
 dev-repo: "https://github.com/rixed/ocaml-parsercombinator.git"
@@ -15,4 +15,12 @@ depends: [
   "batteries"
   "ounit"
   "portia" {build & >= 1.0}
+  "lwt"
+]
+depexts: [
+  [["debian"] ["asciidoc"]]
+  [["ubuntu"] ["asciidoc"]]
+]
+post-messages: [
+  "This package requires asciidoc to build the doc." {failure}
 ]

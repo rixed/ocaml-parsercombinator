@@ -28,5 +28,7 @@ Corrections.ml
 Parsers.ml
 Usual.ml
 Misc.ml
+Positions.ml
+LwtConfig.ml
 README.html
 oUnit-tests*
