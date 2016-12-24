@@ -2,7 +2,7 @@ description = "Resumable combinatoric parser with error detection"
 version = "0.2"
 
 package "common" (
-  requires = "batteries ounit"
+  requires = "batteries"
   archive(byte) = "parsercombinator.cma"
   archive(native) = "parsercombinator.cmxa"
 )

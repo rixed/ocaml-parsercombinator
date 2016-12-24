@@ -4,16 +4,20 @@ version: "0.2"
 maintainer: "rixed@free.fr"
 authors: "rixed@free.fr"
 dev-repo: "https://github.com/rixed/ocaml-parsercombinator.git"
+doc: "http://rixed.github.io/ocaml-parsercombinator/"
+homepage: "https://github.com/rixed/ocaml-parsercombinator/"
 build: [
   ["./configure" "--prefix=%{prefix}%"]
   [make]
 ]
+build-doc: [ [make "doc"] ]
+build-test: [ [make "check"] ]
 install: [make "install"]
 remove: ["ocamlfind" "remove" "parsercombinator"]
 depends: [
   "ocamlfind"
   "batteries"
-  "ounit"
+  "ounit" {test}
   "portia" {build & >= "1.0"}
   "lwt"
 ]
