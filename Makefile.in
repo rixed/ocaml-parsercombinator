@@ -62,6 +62,7 @@ install: $(ARCHIVES) $(XARCHIVES)
 	for xarch in $(XARCHIVES) ; do \
 		if test -f "$$xarch" ; then extra="$$extra $$xarch "`basename "$$xarch" .cmxa`.a ; fi ; \
 	done ; \
+	if test -n "$$extra" ; then extra="$$extra *.cmx" ; fi ; \
 	@OCAMLFIND@ install "$(PKG_NAME)" *.cmi $(ARCHIVES) META $$extra
 
 uninstall:
