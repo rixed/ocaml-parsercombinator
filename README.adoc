@@ -104,6 +104,10 @@ be to have an 'error budget', and try different outcomes at every step to look
 the combination of alternatives that parse the most of the input stream.
 Setting this error budget to zero would effectively turn off the feature.
 
+// Insted of an error budget, a number of success between two errors?
+// So the Correction should keep track of the number of success in addition to
+// the number of errors
+
 It is hard to make this technique less awfully expensive than it sounds.
 
 Many of those ideas come from
@@ -204,13 +208,13 @@ Thus the possibly blocking input mechanism:
 [source,ml]
 ----
 type stream
-val take : stream -> (token Misc.stream_value * stream) ct
+val take : stream -> (token ParsersMisc.stream_value * stream) ct
 ----
 
 With the +stream_value+ type being like an +option+ type with more specific
 constructors, defined in a separate module for fear of circular dependencies:
 
-.Misc.ml: type of stream value
+.ParsersMisc.ml: type of stream value
 [source,ml]
 ----
 type 'a stream_value = Item of 'a | EndOfStream
@@ -254,10 +258,10 @@ required to reach that point:
 [source,ml]
 ----
 type 'b parser =
-  Corrections.t -> stream -> ('b * Corrections.t * stream) list ct
+  ParsersCorrections.t -> stream -> ('b * ParsersCorrections.t * stream) list ct
 ----
 
-Before taking a closer look at this new +Corrections.t+ type that would encode
+Before taking a closer look at this new +ParsersCorrections.t+ type that would encode
 the corrections we must question the usage of a list of results as the return
 type.  Firstly, a list is over-specified since the order of the possible
 results is not important; what we really want here is a set and we use a list
@@ -299,7 +303,7 @@ So we will not implement exclusive alternative and will instead explore forced
 success of the +check+ parser. Hence, we turned exploring failure with
 exploring success and saved our list as the return type.
 
-Now, what's this +Corrections.t+ type?
+Now, what's this +ParsersCorrections.t+ type?
 
 To be able to build a useful error message we must point at the position in
 the original stream of tokens where some change had to be made in order to
@@ -314,25 +318,25 @@ to succeed (as a string) completes the +Correction.t+. For the position we
 conveniently reuse the stream output as it can already encode both the position
 and the special +EOF+ position:
 
-.Corrections.ml: type
+.ParsersCorrections.ml: type
 [source,ml]
 ----
-open Misc
-type 'c t = ('c stream_value * string) BoundedSet.t
+open ParsersMisc
+type 'c t = ('c stream_value * string) ParsersBoundedSet.t
 ----
 
-where +BoundedSet+ is an unordered container with a maximum capacity (the
+where +ParsersBoundedSet+ is an unordered container with a maximum capacity (the
 maximum amount of changes allowed) and which API will become clearer as we
 encounter the few required functions.
 
 Trivially, to add an error at a given position to the correction list, with
 message +msg+:
 
-.Corrections.ml: recording a change
+.ParsersCorrections.ml: recording a change
 [source,ml]
 ----
 let change_at corr postok (msg : string) =
-  BoundedSet.add corr (postok, msg)
+  ParsersBoundedSet.add corr (postok, msg)
 ----
 
 Now that we know what corrections look like and that we have to read the
@@ -342,8 +346,8 @@ definitive parser type, that we broke down in two parts for simplicity:
 .final parser type
 [source,ml]
 ----
-type 'b result = 'b * ((position * token) Corrections.t) * stream
-type 'b t = (position * token) Corrections.t -> stream -> 'b result list ct
+type 'b result = 'b * ((position * token) ParsersCorrections.t) * stream
+type 'b t = (position * token) ParsersCorrections.t -> stream -> 'b result list ct
 ----
 
 That we want both in the implementation and the signature:
@@ -368,7 +372,7 @@ have the final type for +stream+/+take+:
 ----
 type position
 type stream
-val take : stream -> ((position * token) Misc.stream_value * stream) ct
+val take : stream -> ((position * token) ParsersMisc.stream_value * stream) ct
 ----
 
 .parser public type constraints
@@ -389,7 +393,7 @@ The +SimpleConfig+ serves this purpose:
 [source,ml]
 ----
 open Batteries
-open Misc
+open ParsersMisc
 module SimpleConfig
   (Token : sig
     type t
@@ -454,13 +458,13 @@ already. We will abstract this in a +fail_or_maybe_not+ function:
 [source,ml]
 ----
 open Batteries
-open Corrections
+open ParsersCorrections
 
 let fail_or_maybe_not msg x (* <1> *) ?pos_from corr rest =
   ct_bind
     (take (Option.default rest pos_from))
     (fun (postok, rest') ->
-      if BoundedSet.is_full corr then (
+      if ParsersBoundedSet.is_full corr then (
         (* no more errors permitted so fail for real *)
         ct_return []
       ) else (
@@ -534,8 +538,8 @@ satisfying environment for tests:
 ----
 open Batteries
 open OUnit2
-open Misc
-open Corrections
+open ParsersMisc
+open ParsersCorrections
 
 module P = Parsers.Make (Parsers.SimpleConfig (Char))
 (* ...other tested modules... *)
@@ -548,12 +552,12 @@ let stream_of_string s =
   loop (String.length s - 1) []
 
 let max_changes = 3
-let corr = BoundedSet.make max_changes
+let corr = ParsersBoundedSet.make max_changes
 let correction_at pos msg =
-  let corr = BoundedSet.make max_changes in
+  let corr = ParsersBoundedSet.make max_changes in
   change_at corr pos msg
 
-let no_corr = BoundedSet.make 0
+let no_corr = ParsersBoundedSet.make 0
 let rest = stream_of_string "glop glop pas glop"
 let no_input = []
 
@@ -646,7 +650,7 @@ configuration:
 .Parser library: checking for EOF
 [source,ml]
 ----
-open Misc
+open ParsersMisc
 let eof msg corr rest =
   ct_bind (take rest) (function
     | EndOfStream, rest' -> return () corr rest'
@@ -1374,12 +1378,12 @@ This is unfortunately going to hit us a lot when defining parser combinators
 because we'd like to get away with the many meaningless and repetitive
 parameters which presence just obfuscate the intent of the code. C'est la vie.
 
-=== BoundedSet
+=== Bounded set
 
 We still have to provide an implementation for our set of fixed maximum size.
 The simplest implementation is that of a list with a current size:
 
-.BoundedSet.ml: type
+.ParsersBoundedSet.ml: type
 [source,ml]
 ----
 type 'a t =
@@ -1390,7 +1394,7 @@ type 'a t =
 
 With the trivial constructor:
 
-.BoundedSet.ml: constructor
+.ParsersBoundedSet.ml: constructor
 [source,ml]
 ----
 let make max_size =
@@ -1399,7 +1403,7 @@ let make max_size =
 
 And the only two operations we've met so far:
 
-.BoundedSet.ml: operations
+.ParsersBoundedSet.ml: operations
 [source,ml]
 ----
 let is_full t = t.size >= t.max_size
@@ -1430,9 +1434,9 @@ val print_position : 'o BatInnerIO.output -> position -> unit
 val print_stream : 'o BatInnerIO.output -> stream -> unit
 ----
 
-With a printer for +BoundedSet.t+ we could also print corrections:
+With a printer for +ParsersBoundedSet.t+ we could also print corrections:
 
-.BoundedSet.ml: printer
+.ParsersBoundedSet.ml: printer
 [source,ml]
 ----
 open Batteries
@@ -1441,7 +1445,7 @@ let print print_value fmt t =
   List.print print_value fmt t.items
 ----
 
-.Misc.ml: printer
+.ParsersMisc.ml: printer
 [source,ml]
 ----
 open Batteries
@@ -1451,7 +1455,7 @@ let print_stream_value print_value fmt = function
   | Item c -> print_value fmt c
 ----
 
-.Corrections.ml: printers
+.ParsersCorrections.ml: printers
 [source,ml]
 ----
 open Batteries
@@ -1459,10 +1463,10 @@ open Batteries
 let print_correction print_where fmt (pos, msg) =
   Printf.fprintf fmt "%s at %a"
     msg
-    (Misc.print_stream_value print_where) pos
+    (ParsersMisc.print_stream_value print_where) pos
 
 let print_corrections print_where fmt corr =
-  BoundedSet.print (print_correction print_where) fmt corr
+  ParsersBoundedSet.print (print_correction print_where) fmt corr
 ----
 
 With all this we can print results, which are used in unit tests:
@@ -1492,10 +1496,10 @@ val print_result : ('o BatInnerIO.output -> 'b -> unit) ->
 == Parsing usual things
 
 It might come handy to have some ready made parsers for common things such
-as words, numbers, etc... We will regroup those in a +Usual+ module
+as words, numbers, etc... We will regroup those in a +ParsersUsual+ module
 parametrized by a +Parsers+ module for characters:
 
-.Usual.ml: Parsers for usual things
+.ParsersUsual.ml: Parsers for usual things
 [source,ml]
 ----
 open Batteries
@@ -1511,7 +1515,7 @@ end
 .other tested modules
 [source,ml]
 ----
-module SimpleUsual = Usual.Make (P)
+module SimpleUsual = ParsersUsual.Make (P)
 open SimpleUsual
 ----
 
@@ -2015,11 +2019,11 @@ array or any indexed container) with a +nth+ function returning the token at
 some designated index. This configuration module must also provide the function
 returning the (promise of a) next block (and the range we ought to parse).
 
-.LwtConfig.ml: chained buffers of tokens
+.ParsersLwtConfig.ml: chained buffers of tokens
 [source,ml]
 ----
 open Batteries
-open Misc
+open ParsersMisc
 
 module type CONFIG = sig
   type token
@@ -2136,7 +2140,7 @@ let empty_stream = None
 
 Example implementation that reads bytes from a file:
 
-.LwtConfig.ml: reading bytes from a file
+.ParsersLwtConfig.ml: reading bytes from a file
 [source,ml]
 ----
 open Batteries
@@ -2171,11 +2175,11 @@ the stream type.
 The simplest such wrapper function, that works for every type of token, just
 adds the offset from the beginning of the stream:
 
-.Positions.ml: pairing an offset with every token
+.ParsersPositions.ml: pairing an offset with every token
 [source,ml]
 ----
 open Batteries
-open Misc
+open ParsersMisc
 module Offset (Conf : Parsers.CONFIG )
   : Parsers.CONFIG with type token = Conf.token
                     and type position = int
@@ -2207,7 +2211,7 @@ Another simple wrapper keeping track of the position as number of lines and
 columns must sneak at the obtained tokens (looking for newlines) and
 therefore works only with streams of characters:
 
-.Positions.ml: pairing a line number and column number with every characters
+.ParsersPositions.ml: pairing a line number and column number with every characters
 [source,ml]
 ----
 module LineCol (Conf : Parsers.CONFIG with type token = char
