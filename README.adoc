@@ -102,17 +102,23 @@ functorization.
 Error detection must be an option. The simplest method to reach this goal would
 be to have an 'error budget', and try different outcomes at every step to look
 the combination of alternatives that parse the most of the input stream.
-Setting this error budget to zero would effectively turn off the feature.
-
-// Insted of an error budget, a number of success between two errors?
-// So the Correction should keep track of the number of success in addition to
-// the number of errors
 
 It is hard to make this technique less awfully expensive than it sounds.
+
+Setting this error budget to zero would effectively turn off the feature.
+
+Instead of a global error budget, one may prefer to have a maximum error rate.
 
 Many of those ideas come from
 http://www.staff.science.uu.nl/~swier101/Papers/1999/SofSem99.pdf[Fast, Error
 Correcting Parser Combinators: A Short Tutorial], a XX^th^ century paper.
+
+=== Error reporting
+
+Although this is related to error detection, error reporting is a requirement
+on it own.  Indeed, a parser could do a good job at correcting typos but still
+be unable to report a meaningful error message when it fails to process the
+input tokens.
 
 === Parser Combinators
 
@@ -300,7 +306,7 @@ notice that if +for+ were a valid variable name then the input would be valid,
 which will make a much better error message.
 
 So we will not implement exclusive alternative and will instead explore forced
-success of the +check+ parser. Hence, we turned exploring failure with
+success of the +check+ parser. Hence, we turned exploring failure into
 exploring success and saved our list as the return type.
 
 Now, what's this +ParsersCorrections.t+ type?
@@ -449,10 +455,10 @@ val fail : 'b t
 val return : 'b -> 'b t
 ----
 
-Those two first parsers perform no error detection at all.  But many other
+Those two first parsers perform no error correction at all.  But many other
 parsers will have to either terminate parsing abruptly (with +fail+) or add a
-change to the correction list and proceed, if the error budget is not exhausted
-already. We will abstract this in a +fail_or_maybe_not+ function:
+change to the correction list and proceed, if the error budget is not
+exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
 
 .Parser library: fail with success exploration
 [source,ml]
@@ -635,9 +641,13 @@ not cause too much worries):
 
 === Checking for end of stream
 
-Another very useful and basic parser is the one that succeeds on EOF and fails
-everywhere else. It is useful to check that the input stream have been consumed
-entirely by the preceding parsers.
+Another very useful and basic parser is the one that succeeds on EOF and
+fails everywhere else. It is useful to check that the input stream have been
+consumed entirely by the preceding parsers.
+
+TODO: the main usage is to remove all the partial solutions from the final
+result. Maybe we should provide a function for that, and get rid of this
+and from_pos in fail_or_maybe_not and empty_stream?
 
 We may not want to engage in error detection in this parser: mimicking success
 implies pretending the stream stops there, but most input streams could be
