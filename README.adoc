@@ -168,6 +168,8 @@ stream to return an existential rather than universal type:
 .Parsers.ml: functor to parametrize over the threading mechanism
 [source,ml]
 ----
+open Batteries
+
 module type CONFIG = sig
   type token
   (* ...Parser configuration... *)
@@ -176,7 +178,7 @@ end
 module type S = sig
   include CONFIG
 
-  (* ...Parser signatures... *)
+  (* ...Parser signature... *)
 end
 
 module Make (Conf : CONFIG) :
@@ -320,9 +322,9 @@ it's probably better to leave it open to the user. Let's therefore assume that
 both tokens and positions are read from the input stream.
 
 In addition to the location a mere description of the parser that we forced
-to succeed (as a string) completes the +Correction.t+. For the position we
-conveniently reuse the stream output as it can already encode both the position
-and the special +EOF+ position:
+to succeed (as a string) completes the +ParsersCorrection.t+. For the position
+we conveniently reuse the stream output as it can already encode both the
+position and the special +EOF+ position:
 
 .ParsersCorrections.ml: type
 [source,ml]
@@ -453,7 +455,7 @@ That we want both in the implementation and the signature:
 (* ...keeping track of the best error... *)
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 (* ...final parser type... *)
@@ -464,11 +466,54 @@ always be given the same one letter names:
 
 - +m+ for the stack of messages describing the context (of type +string list+);
 - +e+ for the optional +error+;
-- +c+ for the +Corrections.t+;
+- +c+ for the +ParsersCorrections.t+;
 - +s+ for the +stream+;
 - +x+ for a +token+;
 - +p+ for a parser (of type +t+);
 - +r+ for a list or possible results (of type +'b possible_result list+).
+
+The output itself, +(error option * 'b possible_result list) ct+ fits combining
+parsers but may be a bit uneasy to handle for the end user. This function turn
+it into a more manageable +result+ type:
+
+.Parser library: building a final result from possible results
+[source,ml]
+----
+let to_result (e, r) =
+  (* If we have a single solution then that's the one! *)
+  match r with
+  | [ b, c, _s ] ->
+    if ParsersBoundedSet.is_empty c then Ok b
+    else Bad (Approximation (b, c))
+  | [] ->
+    Bad (NoSolution e)
+  | lst ->
+    Bad (Ambiguous (List.map (fun (b, c, _s) -> b, c) lst))
+----
+
+of type:
+
+.Parser signature
+[source,ml]
+----
+val to_result : error option * 'b possible_result list ->
+                ('b, 'b failure) result
+----
+
+with:
+
+.final parser type: many ways to fail
+[source,ml]
+----
+type 'b failure =
+  | Approximation of ('b * (position * token) ParsersCorrections.t)
+  | Ambiguous of ('b * (position * token) ParsersCorrections.t) list
+  | NoSolution of error option
+----
+
+Notice that we pay no attention to whether the stream has been emptied or not.
+If one want to reach the end of the input stream then that must be part of the
+parser (see +eof+).
 
 It will come handy to have a configuration that's as simple as possible, with
 no threading going on, for those cases where we do not need resumable parsers;
@@ -480,7 +525,6 @@ The +SimpleConfig+ serves this purpose:
 .Parsers.ml: simple configuration for non-resumable parsers
 [source,ml]
 ----
-open Batteries
 open ParsersMisc
 module SimpleConfig
   (Token : sig
@@ -532,7 +576,7 @@ let fail _m e _c _s = ct_return (e, [])
 
 with signatures:
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val return : 'b -> 'b t
@@ -547,7 +591,6 @@ exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
 .Parser library: fail with success exploration
 [source,ml]
 ----
-open Batteries
 open ParsersCorrections
 
 let fail_or_maybe_not x (* <1> *) ?pos_from m e c s =
@@ -592,7 +635,7 @@ let check p m e c s =
     | e', _ -> return () m e' c s)
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val check : 'b t -> unit t
@@ -613,7 +656,7 @@ let nay p m e c s =
 
 So that we could write +check m (nay p)+.
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val nay : 'b t -> unit t
@@ -668,7 +711,8 @@ let uniq = function
 (* version of assert_equal specialized for parser results *)
 let assert_same_results ?msg print_output exp got_ =
   ct_bind got_ (fun got ->
-    let printer = IO.to_string (print_results print_output) in
+    let printer =
+      IO.to_string (print_possible_results print_output) in
     let cmp (exp_err, exp) (act_err, got) =
       let same_err =
         match exp_err, act_err with
@@ -790,7 +834,7 @@ let eof m e c s =
 success also alters the input stream. That's also the only use for
 +empty_string+.
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val eof : unit t
@@ -862,7 +906,7 @@ let cond expl f x m e c s =
       fail_or_maybe_not x m e c s)
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val cond : string -> (token -> bool) -> token -> token t
@@ -885,7 +929,7 @@ let cond_map expl f x m e c s =
        | None   -> fail_or_maybe_not x m e c s))
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val cond_map : string -> (token -> 'b option) -> 'b -> 'b t
@@ -922,7 +966,7 @@ let range a b expl =
   cond expl (fun c -> c >= a && c <= b) a
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val item : ?what:string -> token -> token t
@@ -989,7 +1033,7 @@ An infix operator makes it even more convenient:
 let (>>:) = map
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val map   : 'b t -> ('b -> 'd) -> 'd t
@@ -1036,7 +1080,7 @@ With the conventional infix operator:
 let (>>=) = bind
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val bind  : 'b t -> ('b -> 'd t) -> 'd t
@@ -1065,7 +1109,7 @@ often:
 let (++) p1 p2 = cons p1 p2
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val cons : 'b t -> 'd t -> ('b * 'd) t
@@ -1087,7 +1131,7 @@ let (-+) p1 p2 = p1 ++ p2 >>: snd
 let (--) p1 p2 = p1 ++ p2 >>: ignore
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val (+-) : 'b t -> 'd t -> 'b t
@@ -1125,7 +1169,7 @@ let oneof p1 p2 m e c s =
 let (|||) = oneof
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val oneof : 'b t -> 'b t -> 'b t
@@ -1148,7 +1192,7 @@ let either p1 p2 =
 let (|/|) = either
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val either : 'b t -> 'b t -> 'b t
@@ -1213,7 +1257,7 @@ optional p ++ optional p
 
 would yield 2 equivalent results.
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val optional : def:'b -> 'b t -> 'b t
@@ -1267,7 +1311,7 @@ stage.  We'd like to get away with this list which most often than not will be
 mapped into something else. A variant of lazy list would likely be preferable
 here (as in other places).
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val repeat :
@@ -1300,7 +1344,7 @@ none corr rest = return () corr rest+ or the shorter +let none = return ()+.
 Refer to the <<type-generalization,section about type generalization>> if that
 is the case.
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val none : unit t
@@ -1334,7 +1378,7 @@ let rec repeat_greedy ~sep ?min ?max ?what p =
     fun _ -> [])
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val repeat_greedy :
@@ -1437,7 +1481,7 @@ let several_greedy ~sep = repeat_greedy ~sep ~min:1
 let times n = repeat ~min:n ~max:n
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val several : sep:'d t -> ?max:int -> ?what:string -> 'b t -> ('b list) t
@@ -1495,7 +1539,7 @@ let anything m e c s =
 
 Notice that +anything+ can only fail at end of input.
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val replace : token -> 'b -> token
@@ -1569,12 +1613,13 @@ let make max_size =
   { size = 0 ; max_size ; items = [] }
 ----
 
-And the only two operations we've met so far:
+And the only three operations we've met so far:
 
 .ParsersBoundedSet.ml: operations
 [source,ml]
 ----
 let is_full t = t.size >= t.max_size
+let is_empty t = t.size = 0
 
 let add t x =
   { t with size = t.size + 1 ;
@@ -1673,29 +1718,54 @@ let print_error fmt = function
       (ParsersMisc.print_stream_item print_postok) e.where
       print_error_context e.what
 
-let print_result print_output fmt (x, corr, rest) =
+let print_possible_result print_output fmt (x, corr, rest) =
   Printf.fprintf fmt "(output=%a,corrections=%a,rest=%a)"
     print_output x
     (print_corrections print_postok) corr
     print_stream rest
 
-let print_results print_output fmt (e, r) =
+let print_possible_results print_output fmt (e, r) =
   Printf.fprintf fmt "%a, %a"
     print_error e
-    (List.print (print_result print_output)) r
+    (List.print (print_possible_result print_output)) r
+
+let print_result print_output fmt = function
+  | Ok b -> print_output fmt b
+  | Bad (Approximation (b, c)) ->
+    Printf.fprintf fmt "Approximately: %a (corrections: %a)"
+      print_output b
+      (print_corrections print_postok) c
+  | Bad (Ambiguous lst) ->
+    Printf.fprintf fmt "Ambiguous: %a"
+      (List.print (fun fmt (b, c) ->
+        Printf.fprintf fmt "%a (corrections: %a)"
+          print_output b
+          (print_corrections print_postok) c)) lst
+  | Bad (NoSolution e) ->
+    print_error fmt e
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val print_error : 'o BatInnerIO.output -> error option -> unit
-val print_result : ('o BatInnerIO.output -> 'b -> unit) ->
-                   'o BatInnerIO.output ->
-                   'b possible_result -> unit
-val print_results : ('o BatInnerIO.output -> 'b -> unit) ->
-                    'o BatInnerIO.output ->
-                    (error option * 'b possible_result list) -> unit
+
+val print_possible_result :
+  ('o BatInnerIO.output -> 'b -> unit) ->
+  'o BatInnerIO.output ->
+  'b possible_result -> unit
+
+val print_possible_results :
+  ('o BatInnerIO.output -> 'b -> unit) ->
+  'o BatInnerIO.output ->
+  (error option * 'b possible_result list) -> unit
+
+val print_result :
+  ('o BatInnerIO.output -> 'b -> unit) ->
+  'o BatInnerIO.output ->
+  ('b, 'b failure) result -> unit
 ----
+
 
 == Parsing usual things
 
@@ -2080,7 +2150,7 @@ let binary_ops_reducer ?(right_associative=false) ~op ~term ~sep ~reduce =
     loop_lst fst lst
 ----
 
-.Parser signatures
+.Parser signature
 [source,ml]
 ----
 val binary_ops_reducer :
@@ -2352,7 +2422,6 @@ Example implementation that reads bytes from a file:
 .ParsersLwtConfig.ml: reading bytes from a file
 [source,ml]
 ----
-open Batteries
 module FileReader : CONFIG =
 struct
   type token = char
