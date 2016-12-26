@@ -341,8 +341,8 @@ message +msg+:
 .ParsersCorrections.ml: recording a change
 [source,ml]
 ----
-let change_at corr postok (msg : string) =
-  ParsersBoundedSet.add corr (postok, msg)
+let change_at c postok m =
+  ParsersBoundedSet.add c (postok, List.hd m)
 ----
 
 Now that we know what corrections look like and that we have to read the
@@ -383,8 +383,7 @@ solutions, but this still left us with an empty list when no solution could be
 found, from which it's not possible to devise an informative error message!
 
 In addition to the cumulative list of all solutions a parser should also return
-an aggregated value containing the "best" error found (accompanied by some
-statistics, while we are at it).
+an aggregated value containing the "best" error found.
 
 What we call the "best" error is the error that caused the parser to give up
 (return +[]+) the later in the input stream, measured by the position of the
@@ -396,21 +395,24 @@ token. We thus need another function from the configuration:
 val cmp_position : position -> position -> int
 ----
 
+An error is made of the location in the stream where the parsing stopped and
+the stack of things the parser was trying to build:
+
 .error type:
 [source,ml]
 ----
 type error =
   { where : (position * token) ParsersMisc.stream_item ;
-    what : string }
+    what : string list }
 ----
 
-We can update the current best error from another stream item and message with
-this simple function:
+We can update the current best error from another stream item and stack of
+messages with this simple function:
 
 .keeping track of the best error
 [source,ml]
 ----
-let update_error pt m = function
+let new_error pt m = function
   | None -> Some { where = pt ; what = m }
   | Some err as e -> (
     let open ParsersMisc in
@@ -421,6 +423,10 @@ let update_error pt m = function
       Some { where = pt ; what = m }
     | _ -> e)
 ----
+
+With the idea that a stack of messages describing the context is maintained
+from one parser to the next as the context gets deeper. Therefore, every parser
+must accept this current stack as an additional input.
 
 So that the new (and final) type for parsers expands to:
 
@@ -433,7 +439,8 @@ type 'b possible_result =
   'b * ((position * token) ParsersCorrections.t) * stream
 
 type 'b t =
-  error option -> (position * token) ParsersCorrections.t -> stream ->
+  string list -> error option ->
+  (position * token) ParsersCorrections.t -> stream ->
   (error option * 'b possible_result list) ct
 ----
 
@@ -455,11 +462,11 @@ That we want both in the implementation and the signature:
 That's a lot of inputs. For simplicity and conciseness those parameters will
 always be given the same one letter names:
 
+- +m+ for the stack of messages describing the context (of type +string list+);
 - +e+ for the optional +error+;
 - +c+ for the +Corrections.t+;
 - +s+ for the +stream+;
 - +x+ for a +token+;
-- +m+ for a message (of type +string+);
 - +p+ for a parser (of type +t+);
 - +r+ for a list or possible results (of type +'b possible_result list+).
 
@@ -512,7 +519,7 @@ consume anything from the input but merely return a single result:
 .Parser library: return
 [source,ml]
 ----
-let return x e c s = ct_return (e, [x, c, s])
+let return x _m e c s = ct_return (e, [x, c, s])
 ----
 
 A similarly simple one is the parser that always fail:
@@ -520,7 +527,7 @@ A similarly simple one is the parser that always fail:
 .Parser library: fail
 [source,ml]
 ----
-let fail e _c _s = ct_return (e, [])
+let fail _m e _c _s = ct_return (e, [])
 ----
 
 with signatures:
@@ -543,13 +550,13 @@ exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
 open Batteries
 open ParsersCorrections
 
-let fail_or_maybe_not m x (* <1> *) ?pos_from e c s =
+let fail_or_maybe_not x (* <1> *) ?pos_from m e c s =
   ct_bind
     (take (Option.default s pos_from))
     (fun (pt, _s') ->
       if ParsersBoundedSet.is_full c then (
         (* no more errors permitted so fail for real *)
-        fail (update_error pt m e) c s
+        fail m (new_error pt m e) c s
       ) else (
         (* Here we insert x in the stream ;
            Shall we also try to replace postok with x?
@@ -557,7 +564,7 @@ let fail_or_maybe_not m x (* <1> *) ?pos_from e c s =
            TODO: two types of correction: replace and insert *)
         (* Note that corrections still count as errors because there is no
            guarantee that we will keep track of them: *)
-        return x (update_error pt m e) (change_at c pt m) s))
+        return x m (new_error pt m e) (change_at c pt m) s))
 ----
 
 <1> Here we need an example value +x+ of type β in order to change the outcome
@@ -578,16 +585,17 @@ is that it explores forcing a success in case the check fails.
 .Parser library: check
 [source,ml]
 ----
-let check m p e c s =
-  ct_bind (p e c s) (function
-    | e', [] -> fail_or_maybe_not m () e' c s
-    | e', _ -> return () e' c s)
+let check p m e c s =
+  let m = "check"::m in
+  ct_bind (p m e c s) (function
+    | e', [] -> fail_or_maybe_not () m e' c s
+    | e', _ -> return () m e' c s)
 ----
 
 .Parser signatures
 [source,ml]
 ----
-val check : string -> 'b t -> unit t
+val check : 'b t -> unit t
 ----
 
 Another parser that will prove useful (despite contributing no value to the
@@ -596,10 +604,11 @@ result) especially in coordination with +check+ is the negation:
 .Parser library: negation
 [source,ml]
 ----
-let nay p e c s =
-  ct_bind (p e c s) (function
-    | e', [] -> return () e' c s
-    | e', _ -> fail_or_maybe_not "not" () e' c s)
+let nay p m e c s =
+  let m = "not"::m in
+  ct_bind (p m e c s) (function
+    | e', [] -> return () m e' c s
+    | e', _ -> fail_or_maybe_not () m e' c s)
 ----
 
 So that we could write +check m (nay p)+.
@@ -642,9 +651,9 @@ let stream_of_string s =
 let max_changes = 3
 let corr = ParsersBoundedSet.make max_changes
 (* TODO: two types of correction: replace and insert *)
-let correction_at pos m =
+let correction_at postok m =
   let c = ParsersBoundedSet.make max_changes in
-  change_at c pos m
+  change_at c postok [ m ]
 
 let no_corr = Parsers.no_error_correction
 let rest = stream_of_string "glop glop pas glop"
@@ -657,18 +666,32 @@ let uniq = function
   | _ -> None
 
 (* version of assert_equal specialized for parser results *)
-let assert_same_results ?msg print_output (exp_err, exp) actual =
-  ct_bind actual (fun (act_err, got) ->
-    (* Many times we do not want to guess the errors (for instance
-       when the parser actually succeeds): *)
-    let act_err =
-      if exp_err = None then None else act_err in
+let assert_same_results ?msg print_output exp got_ =
+  ct_bind got_ (fun got ->
     let printer = IO.to_string (print_results print_output) in
+    let cmp (exp_err, exp) (act_err, got) =
+      let same_err =
+        match exp_err, act_err with
+        | None, _ ->
+          (* Many times we do not want to guess the errors (for instance
+             when the parser actually succeeds): *)
+          true
+        | Some exp_err, Some act_err ->
+          (* Unless we give a deep exp_err we want to compare only the heads: *)
+          exp_err.where = act_err.where &&
+          (match exp_err.what, act_err.what with
+          | [exp_head], act_head::_ ->
+            0 = compare exp_head act_head
+          | exp_what, act_what ->
+            0 = compare exp_what act_what)
+        | exp, act ->
+          0 = compare exp act in
+      same_err &&
+      0 = compare (List.sort compare exp)
+                  (List.sort compare got) in
     ct_return (
       (* OUnit really should have an assert_same_elements *)
-      assert_equal ~printer ?msg
-        (exp_err, List.sort compare exp)
-        (act_err, List.sort compare got))) |>
+      assert_equal ~printer ~cmp ?msg exp got)) |>
   ignore
 
 let () =
@@ -709,25 +732,25 @@ not cause too much worries):
   fun _ctx ->
     assert_same_results Int.print
       (None, [42, no_corr, rest])
-      (return 42 None no_corr rest)
+      (return 42 [] None no_corr rest)
 ) ;
 "return succeed even at EOF" >:: (
   fun _ctx ->
     assert_same_results Int.print
       (None, [42, no_corr, []])
-      (return 42 None no_corr no_input)
+      (return 42 [] None no_corr no_input)
 ) ;
 "fail fails" >:: (
   fun _ctx ->
     assert_same_results Int.print
       (None, [])
-      (fail None no_corr rest)
+      (fail [] None no_corr rest)
 ) ;
 "fail fails even at EOF" >:: (
   fun _ctx ->
     assert_same_results Int.print
       (None, [])
-      (fail None no_corr no_input)
+      (fail [] None no_corr no_input)
 ) ;
 ----
 
@@ -753,14 +776,14 @@ configuration:
 [source,ml]
 ----
 open ParsersMisc
-let eof e c s =
+let eof m e c s =
+  let m = "eof"::m in
   ct_bind (take s) (function
     | EndOfStream, s' ->
-      return () e c s'
+      return () m e c s'
     | _ ->
-      fail_or_maybe_not
-        "spurious content at end of input" ()
-        ~pos_from:s e c empty_stream (* <1> *))
+      fail_or_maybe_not () ~pos_from:s
+        m e c empty_stream (* <1> *))
 ----
 
 <1> Here we will restart with +rest = []+. That's the only case when forcing
@@ -797,21 +820,21 @@ And the accompanying tests:
   fun _ctx ->
     assert_same_results Unit.print
       (None, [(), no_corr, []])
-      (eof None no_corr no_input)
+      (eof [] None no_corr no_input)
 ) ;
 "eof fails" >:: (
   fun _ctx ->
     assert_same_results Unit.print
       (Some { where = Item (0, 'g') ;
-              what = "spurious content at end of input" }, [])
-      (eof None no_corr rest)
+              what = ["eof"] }, [])
+      (eof [] None no_corr rest)
 ) ;
 "eof suggests truncation" >:: (
   fun _ctx ->
     assert_same_results Unit.print
       (None, [(), correction_at (Item (0, 'g'))
-                  "spurious content at end of input", [] ])
-      (eof None corr rest)
+                  "eof", [] ])
+      (eof [] None corr rest)
 ) ;
 ----
 
@@ -830,12 +853,13 @@ Now that we know the type, writing the code is rather easy:
 [NOTE]
 [source,ml]
 ----
-let cond m f x e c s =
+let cond expl f x m e c s =
+  let m = expl::m in
   ct_bind (take s) (function
     | Item (_pos, tok), s' when f tok ->
-      return tok e c s'
+      return tok m e c s'
     | _ ->
-      fail_or_maybe_not m x e c s)
+      fail_or_maybe_not x m e c s)
 ----
 
 .Parser signatures
@@ -850,14 +874,15 @@ boolean:
 .Parser library: cond_map
 [source,ml]
 ----
-let cond_map m f x e c s =
+let cond_map expl f x m e c s =
+  let m = expl::m in
   ct_bind (take s) (function
     | EndOfStream, _ ->
-      fail_or_maybe_not m x e c s
+      fail_or_maybe_not x m e c s
     | Item (_pos, tok), s' ->
       (match f tok with
-       | Some v -> return v e c s'
-       | None   -> fail_or_maybe_not m x e c s))
+       | Some v -> return v m e c s'
+       | None   -> fail_or_maybe_not x m e c s))
 ----
 
 .Parser signatures
@@ -875,8 +900,8 @@ from which a simpler +cond+ parser can be written:
 .Parser library: the cond parser, revisited
 [source,ml]
 ----
-let cond msg f =
-  cond_map msg (fun c -> if f c then Some c else None)
+let cond expl f =
+  cond_map expl (fun c -> if f c then Some c else None)
 ----
 
 It is possible to build many simpler and more convenient parsers on top of
@@ -887,11 +912,14 @@ behavior in face of an inequality operator makes sense) :
 .Parser library: the item parser
 [source,ml]
 ----
-let item ?(what="item") x =
-  cond ("missing "^what) ((=) x) x
+let item ?what x =
+  let expl =
+    Option.default_delayed (fun () ->
+      Printf.sprintf2 "%a" print_token x) what in
+  cond expl ((=) x) x
 
-let range a b m =
-  cond m (fun c -> c >= a && c <= b) a
+let range a b expl =
+  cond expl (fun c -> c >= a && c <= b) a
 ----
 
 .Parser signatures
@@ -908,31 +936,31 @@ val range : token -> token -> string -> token t
   fun _ctx ->
     assert_same_results Char.print
       (None, ['g', no_corr, List.tl rest])
-      (item 'g' None no_corr rest)
+      (item 'g' [] None no_corr rest)
 ) ;
 "item canonical failure" >:: (
   fun _ctx ->
     assert_same_results Char.print
-      (Some { what = "missing item" ;
+      (Some { what = ["X"] ;
               where = Item (0, 'g') }, [])
-      (item 'X' None no_corr rest)
+      (item 'X' [] None no_corr rest)
 ) ;
 "item fails at EOF" >:: (
   fun _ctx ->
     assert_same_results Char.print
-      (Some { what = "missing item" ;
+      (Some { what = ["g"] ;
               where = EndOfStream }, [])
-      (item 'g' None no_corr no_input)
+      (item 'g' [] None no_corr no_input)
 ) ;
 "item error exploration" >:: (
   fun _ctx ->
     (* Here we 'find' the item X just because we add it. *)
     assert_same_results Char.print
-      (Some { what = "missing item" ;
+      (Some { what = ["X"] ;
               where = Item (0, 'g') },
-       [ 'X', correction_at (Item (0, 'g')) "missing item",
+       [ 'X', correction_at (Item (0, 'g')) "X",
          rest (* since we add X in front of rest *) ])
-      (item 'X' None corr rest)
+      (item 'X' [] None corr rest)
 ) ;
 ----
 
@@ -945,8 +973,8 @@ those since they are going to be used prevalently.
 .Parser library: applying a function to all results of a parser
 [source,ml]
 ----
-let map p f e c s =
-  ct_bind (p e c s) (fun (e', results) ->
+let map p f m e c s =
+  ct_bind (p m e c s) (fun (e', results) ->
     let results' = List.map (fun (x, corr, rest) ->
       f x, corr, rest) results in
     ct_return (e', results'))
@@ -987,14 +1015,15 @@ values of +p2+, +p1+ intermediary values being only meaningful to build +p2+.
 .Parser library: bind
 [source,ml]
 ----
-let bind p1 f e c s =
-  ct_bind (p1 e c s) (fun (e', r) ->
+let bind p1 f m e c s =
+  (* TODO: should provide an explanation for what f does, and add this to the context when calling p2 *)
+  ct_bind (p1 m e c s) (fun (e', r) ->
     (* For each possible result of p1, try to continue parsing with p2.
        Aggregate all encountered errors. *)
     List.fold_left (fun prev (x1, c', s') ->
         ct_bind prev (fun (e'', r') ->
           let p2 = f x1 in
-          ct_bind (p2 e'' c' s') (fun (e''', r'') ->
+          ct_bind (p2 m e'' c' s') (fun (e''', r'') ->
             ct_return (e''', List.rev_append r'' r')))
       ) (ct_return (e', [])) r)
 ----
@@ -1076,10 +1105,10 @@ Now let's test that we can indeed sequence parsers:
     let ab = stream_of_string "ab" in
     assert_same_results (Tuple2.print Char.print Char.print)
       (None, [('a', 'b'), no_corr, []])
-      ((item 'a' ++ item 'b') None no_corr ab) ;
+      ((item 'a' ++ item 'b') [] None no_corr ab) ;
     assert_same_results Char.print
       (None, ['a', no_corr, []])
-      ((item 'a' +- item 'b') None no_corr ab)
+      ((item 'a' +- item 'b') [] None no_corr ab)
 ) ;
 ----
 
@@ -1088,9 +1117,9 @@ The next most useful combinator is the alternative:
 .Parser library: alternative
 [source,ml]
 ----
-let oneof p1 p2 e c s =
-  ct_bind (p1 e c s) (fun (e', r) ->
-    ct_bind (p2 e' c s) (fun (e'', r') ->
+let oneof p1 p2 m e c s =
+  ct_bind (p1 m e c s) (fun (e', r) ->
+    ct_bind (p2 m e' c s) (fun (e'', r') ->
       ct_return (e'', List.rev_append r r')))
 
 let (|||) = oneof
@@ -1114,7 +1143,7 @@ around. If this is wanted though then it is easy enough to write:
 [source,ml]
 ----
 let either p1 p2 =
-  (check "??1" (nay p2) -+ p1) ||| (check "??2" (nay p1) -+ p2)
+  (check (nay p2) -+ p1) ||| (check (nay p1) -+ p2)
 
 let (|/|) = either
 ----
@@ -1136,23 +1165,23 @@ With sequences and alternatives we can start writing some interesting tests:
     let a_or_b = item 'a' ||| item 'b' in
     assert_same_results Char.print
       (None, ['a', no_corr, []])
-      (a_or_b None no_corr (stream_of_string "a")) ;
+      (a_or_b [] None no_corr (stream_of_string "a")) ;
     assert_same_results Char.print
       (None, ['b', no_corr, []])
-      (a_or_b None no_corr (stream_of_string "b")) ;
+      (a_or_b [] None no_corr (stream_of_string "b")) ;
     assert_same_results Char.print
-      (Some { what = "missing item" ;
+      (Some { what = ["a"] ;
               where = Item (0, 'z') }, [])
-      (a_or_b None no_corr (stream_of_string "z")) ;
+      (a_or_b [] None no_corr (stream_of_string "z")) ;
     (* Here we try with corrections: we make up the requested item
        in front of the actual one (check the 2 possibilities): *)
     let z = stream_of_string "z" in
     assert_same_results Char.print
-      (Some { what = "missing item" ;
+      (Some { what = ["a"] ;
               where = Item (0, 'z') },
-       ['a', correction_at (Item (0, 'z')) "missing item", z ;
-        'b', correction_at (Item (0, 'z')) "missing item", z])
-      (a_or_b None corr z)
+       ['a', correction_at (Item (0, 'z')) "a", z ;
+        'b', correction_at (Item (0, 'z')) "b", z])
+      (a_or_b [] None corr z)
 ) ;
 ----
 
@@ -1169,7 +1198,7 @@ or one occurrence of +p+:
 [source,ml]
 ----
 let optional ~def p = p ||| return def
-let optional_greedy ~def p = (p +- check "??3" (nay p)) ||| return def
+let optional_greedy ~def p = (p +- check (nay p)) ||| return def
 ----
 
 The +optional_greedy+ above is to avoid terminating a parser on an optional
@@ -1203,28 +1232,30 @@ cut down on the many +optional (repeat p)+ that we would have otherwise.
 .Parser library: repetition of a parser
 [source,ml]
 ----
-let rec repeat ~sep ?(min=0) ?max ?what p e c s =
+let rec repeat ~sep ?(min=0) ?max ?what p m e c s =
+  (* TODO: do not repeat this when recursing. And make what a mandatory expl parameter as usual: *)
+  let m = "repeat"::m in (* add min/max ? *)
   if max = Some 0 then (
-    if min = 0 then return [] e c s
+    if min = 0 then return [] m e c s
     else ct_bind (take s) (fun (pt, _s') ->
-      let m = "Too many "^ Option.default "repetitions" what in
-      fail (update_error pt m e) c s)
+      let m = ("Too many "^ Option.default "repetitions" what)::m in
+      fail m (new_error pt m e) c s)
   ) else (
     let pred_ma = match max with None -> None
                                | Some m -> Some (m-1) in
     match min with
     | 0 ->
       (* we may stop here or continue *)
-      (optional ~def:[] (repeat ~sep ~min:1 ?max ?what p)) e c s
+      (optional ~def:[] (repeat ~sep ~min:1 ?max ?what p)) m e c s
     | 1 ->
       (* at least one more, everything else optional *)
       ((p ++ optional ~def:[]
                  (sep -+ (repeat ~sep ~min:1 ?max:pred_ma ?what p))) >>:
-        fun (x, xs) -> x::xs) e c s
+        fun (x, xs) -> x::xs) m e c s
     | _ ->
       (* above that, repetition is mandatory *)
       ((p +- sep ++ repeat ~sep ~min:(min-1) ?max:pred_ma ?what p) >>:
-        fun (x, xs) -> x::xs) e c s
+        fun (x, xs) -> x::xs) m e c s
   )
 ----
 
@@ -1261,7 +1292,7 @@ when there is no separator:
 .Parser library: none
 [source,ml]
 ----
-let none e c s = return () e c s
+let none m = return () m
 ----
 
 You may be surprised by this notation, either because you were expecting +let
@@ -1282,7 +1313,7 @@ swallows as many +p+ occurrences as present in the input stream) using check:
 [source,ml]
 ----
 let repeat_greedy ~sep ?min ?max ?what p =
-  repeat ~sep ?min ?max ?what p +- check "extraneous" (nay (sep -+ p))
+  repeat ~sep ?min ?max ?what p +- check (nay (sep -+ p))
 ----
 
 ...which unfortunately fails for +min=0+ because of the separator.  We have to
@@ -1296,10 +1327,10 @@ let rec repeat_greedy ~sep ?min ?max ?what p =
   match min with
   | None | Some 0 ->
     repeat_greedy ~sep ~min:1 ?max ?what p |||
-    (check "extraneous" (nay p) >>: fun () -> [])
+    (check (nay p) >>: fun () -> [])
   | min ->
     repeat ~sep ?min ?max ?what p +-
-    (check "extraneous" (nay (sep -+ p)) >>:
+    (check (nay (sep -+ p)) >>:
     fun _ -> [])
 ----
 
@@ -1318,7 +1349,7 @@ val repeat_greedy :
     let assert_ok ?(greedy=false) ~sep ?min ?max rest exp =
       assert_same_results (List.print Char.print) exp
         ((if greedy then repeat_greedy else repeat)
-           ~sep ?min ?max (item 'a') None no_corr rest) in
+           ~sep ?min ?max (item 'a') [] None no_corr rest) in
     let test_with_sep sep sep_len rest =
       let drop n = List.drop (1 + (n-1)*(1+sep_len)) rest in
       assert_ok ~sep rest
@@ -1350,49 +1381,49 @@ val repeat_greedy :
     and a_a_a_b = stream_of_string "a_a_a_b"
     and _a_a_a_b = stream_of_string "_a_a_a_b" in
     test_with_sep none       0 aaab ;
-    test_with_sep (item '_') 1 a_a_a_b ;
+    test_with_sep underscore 1 a_a_a_b ;
     assert_ok ~greedy:true ~sep:none aaab
       (None,
        [['a';'a';'a'], no_corr, List.drop 3 aaab]) ;
-    assert_ok ~greedy:true ~sep:(item '_') a_a_a_b
+    assert_ok ~greedy:true ~sep:underscore a_a_a_b
       (None,
        [['a';'a';'a'], no_corr, List.drop 5 a_a_a_b]) ;
     (* Do not allow a separator at start *)
-    assert_ok ~greedy:true ~sep:(item '_') _a_a_a_b
+    assert_ok ~greedy:true ~sep:underscore _a_a_a_b
       (None, [[], no_corr, _a_a_a_b])
 ) ;
 "repetition: simplest failure" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
-      (Some { what = "missing item" ;
+      (Some { what = ["a"] ;
               where = Item (0, 'z') }, [])
-      (repeat ~sep:none ~min:1 (item 'a') None no_corr (stream_of_string "zaab")) ;
+      (repeat ~sep:none ~min:1 (item 'a') [] None no_corr (stream_of_string "zaab")) ;
     assert_same_results (List.print Char.print)
-      (Some { what = "missing item" ;
+      (Some { what = ["a"] ;
               where = Item (0, 'z') }, [])
-      (repeat_greedy ~sep:none ~min:1 (item 'a') None no_corr (stream_of_string "zaab"))
+      (repeat_greedy ~sep:none ~min:1 (item 'a') [] None no_corr (stream_of_string "zaab"))
 ) ;
 "repetition: missing separator" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
-      (Some { what = "missing item" ;
+      (Some { what = ["-"] ;
               where = Item (3, 'a') }, [])
-      (repeat ~sep:(item '-') ~min:3 (item 'a') None no_corr (stream_of_string "a-aab")) ;
+      (repeat ~sep:(item '-') ~min:3 (item 'a') [] None no_corr (stream_of_string "a-aab")) ;
     assert_same_results (List.print Char.print)
-      (Some { what = "missing item" ;
+      (Some { what = ["-"] ;
               where = Item (3, 'a') }, [])
-      (repeat_greedy ~sep:(item '-') ~min:3 (item 'a') None no_corr (stream_of_string "a-aab"))
+      (repeat_greedy ~sep:(item '-') ~min:3 (item 'a') [] None no_corr (stream_of_string "a-aab"))
 ) ;
 "repetition: below min" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
-      (Some { what = "missing item" ;
+      (Some { what = ["a"] ;
               where = Item (2, 'b') }, [])
-      (repeat ~sep:none ~min:3 (item 'a') None no_corr (stream_of_string "aab")) ;
+      (repeat ~sep:none ~min:3 (item 'a') [] None no_corr (stream_of_string "aab")) ;
     assert_same_results (List.print Char.print)
-      (Some { what = "missing item" ;
+      (Some { what = ["a"] ;
               where = Item (2, 'b') }, [])
-      (repeat_greedy ~sep:none ~min:3 (item 'a') None no_corr (stream_of_string "aab"))
+      (repeat_greedy ~sep:none ~min:3 (item 'a') [] None no_corr (stream_of_string "aab"))
 ) ;
 ----
 
@@ -1432,17 +1463,17 @@ With all these new combinators, more interesting tests can be devised:
     and rest4 = stream_of_string "3005" in
     assert_same_results (List.print Char.print)
       (None, [['0'], no_corr, List.drop 2 rest1])
-      (p None no_corr rest1) ;
+      (p [] None no_corr rest1) ;
     assert_same_results (List.print Char.print)
       (None, [['0'], no_corr, List.drop 2 rest2])
-      (p None no_corr rest2) ;
+      (p [] None no_corr rest2) ;
     assert_same_results (List.print Char.print)
       (None, [['0';'0';'0'], no_corr, List.drop 4 rest3])
-      (p None no_corr rest3) ;
+      (p [] None no_corr rest3) ;
     assert_same_results (List.print Char.print)
-      (Some { what = "missing item" ;
+      (Some { what = ["0"] ;
               where = Item (3, '5') }, [])
-      (p None no_corr rest4)
+      (p [] None no_corr rest4)
 ) ;
 ----
 
@@ -1451,13 +1482,15 @@ With all these new combinators, more interesting tests can be devised:
 ----
 let replace x _ = x
 
-let anything e c s =
+let anything m e c s =
+  let m = "anything"::m in
   ct_bind (take s) (function
     | EndOfStream, _s' ->
-      let e' = update_error EndOfStream "unexpected end of stream" e in
-      fail e' c s
+      let m = "unexpected end of stream"::m in
+      let e' = new_error EndOfStream m e in
+      fail m e' c s
     | Item (_pos, tok), s' ->
-      return tok e c s')
+      return tok m e c s')
 ----
 
 Notice that +anything+ can only fail at end of input.
@@ -1623,12 +1656,22 @@ let print_postok fmt (pos, tok) =
     print_position pos
     print_token tok
 
+let print_error_context fmt = function
+  | [] ->
+    String.print fmt "No context known. This is bad. Good luck!"
+  | [x] ->
+    Printf.fprintf fmt "Cannot find %s" x
+  | x::rest ->
+    let sep = " while looking for " in
+    Printf.fprintf fmt "Cannot find %s%a" x
+      (List.print ~first:sep ~sep String.print) rest
+
 let print_error fmt = function
   | None -> Printf.fprintf fmt "Ok"
   | Some e ->
-    Printf.fprintf fmt "Error at %a: %s"
+    Printf.fprintf fmt "Error at %a: %a"
       (ParsersMisc.print_stream_item print_postok) e.where
-      e.what
+      print_error_context e.what
 
 let print_result print_output fmt (x, corr, rest) =
   Printf.fprintf fmt "(output=%a,corrections=%a,rest=%a)"
@@ -1708,11 +1751,11 @@ will be parsed as octal.
 ----
 type integer = Int.t (* or maybe not? *)
 
-let decimal_digit e =
-  range '0' '9' "digit" e
+let decimal_digit m =
+  range '0' '9' "digit" m
 
-let non_zero_decimal_digit e =
-  range '1' '9' "non-zero digit" e
+let non_zero_decimal_digit m =
+  range '1' '9' "non-zero digit" m
 
 let num_of_char c =
   let cc = Char.code c in
@@ -1724,25 +1767,25 @@ let num_of_char c =
     cc - Char.code 'A' + 10
   else invalid_arg "c"
 
-let underscore e = item '_' e
+let underscore m = item ~what:"underscore" '_' m
 
-let unsigned_decimal_number e =
-  let digits e = several ~sep:none decimal_digit e in
+let unsigned_decimal_number m =
+  let digits m = several ~sep:none decimal_digit m in
   (non_zero_decimal_digit +-
    optional ~def:' ' underscore ++
    optional ~def:[] (several ~sep:underscore digits) >>:
    fun (first, next) ->
    List.fold_left (fun c digits ->
      List.fold_left (fun c digit ->
-       c * 10 + num_of_char digit) c digits) 0 ([first]::next)) e
+       c * 10 + num_of_char digit) c digits) 0 ([first]::next)) m
 
 let signed neg p =
   p                                |||
   item ~what:"sign" '+' -+ p       |||
   (item ~what:"sign" '-' -+ p >>: neg)
 
-let decimal_number e =
-  signed Int.neg unsigned_decimal_number e
+let decimal_number m =
+  signed Int.neg unsigned_decimal_number m
 ----
 
 We have made +num_of_char+ accept hexadecimal digits in foresight.
@@ -1756,41 +1799,41 @@ zero of course), as in perl.
 [source,ml]
 ----
 let non_decimal_integer base prefix digit =
-  let digits e = several ~sep:none digit e in
+  let digits m = several ~sep:none digit m in
   prefix -+ repeat ~sep:underscore ~what:"digits" digits >>:
      List.fold_left (fun c digits ->
        List.fold_left (fun c digit ->
          c * base + num_of_char digit) c digits) 0
 
-let octal_digit e =
-  range '0' '7' "octal digit" e
+let octal_digit m =
+  range '0' '7' "octal digit" m
 
-let octal_number e =
-  (non_decimal_integer 8 (item ~what:"0" '0') octal_digit |>
-   signed Int.neg) e
+let octal_number m =
+  (non_decimal_integer 8 (item '0') octal_digit |>
+   signed Int.neg) m
 
-let hexadecimal_digit e =
+let hexadecimal_digit m =
   cond "hexadecimal digit" (fun c ->
     (c >= '0' && c <= '9') ||
     (c >= 'a' && c <= 'f') ||
-    (c >= 'A' && c <= 'F')) '1' e
+    (c >= 'A' && c <= 'F')) '1' m
 
 let non_decimal_integer_prefix x =
-  item ~what:"0" '0' --
+  item '0' --
   cond "integer prefix" (fun c -> Char.lowercase c = x) x
 
-let hexadecimal_number e =
+let hexadecimal_number m =
   let prefix = non_decimal_integer_prefix 'x' in
   (non_decimal_integer 16 prefix hexadecimal_digit |>
-   signed Int.neg) e
+   signed Int.neg) m
 
-let binary_digit e =
-  range '0' '1' "bit" e
+let binary_digit m =
+  range '0' '1' "bit" m
 
-let binary_number e =
+let binary_number m =
   let prefix = non_decimal_integer_prefix 'b' in
   (non_decimal_integer 2 prefix binary_digit |>
-   signed Int.neg) e
+   signed Int.neg) m
 ----
 
 Finally, this parser can parse all kinds of integers seen so far:
@@ -1798,11 +1841,11 @@ Finally, this parser can parse all kinds of integers seen so far:
 .usual parsers: any integer
 [source,ml]
 ----
-let integer e =
+let integer m =
   (decimal_number     |||
    octal_number       |||
    hexadecimal_number |||
-   binary_number) e
+   binary_number) m
 ----
 
 .tests
@@ -1830,7 +1873,7 @@ let integer e =
     List.iter (fun (input, output) ->
       assert_same_results Int.print
         (None, [output, no_corr, []])
-        ((integer +- eof) None no_corr (stream_of_string input)))
+        ((integer +- eof) [] None no_corr (stream_of_string input)))
 ) ;
 "not decimal number immediate" >:: (
   fun _ctx ->
@@ -1839,7 +1882,7 @@ let integer e =
     List.iter (fun input ->
       assert_same_results Int.print
         (None, [])
-        ((integer +- eof) None no_corr (stream_of_string input)))
+        ((integer +- eof) [] None no_corr (stream_of_string input)))
 ) ;
 ----
 
@@ -1855,7 +1898,7 @@ not both.
 [source,ml]
 ----
 let fractional_part inv_base digit =
-  let digits e = several ~sep:none digit e in
+  let digits m = several ~sep:none digit m in
   several ~sep:underscore digits >>: fun digits ->
     List.fold_left (fun c_scale digits ->
         List.fold_left (fun (c, scale) digit ->
@@ -1865,28 +1908,28 @@ let fractional_part inv_base digit =
       ) (0., inv_base) digits |>
     fst
 
-let unsigned_decimal_fractional e =
-  let dot e = item ~what:"fractional dot" '.' e in
+let unsigned_decimal_fractional m =
+  let dot m = item ~what:"fractional dot" '.' m in
   ((unsigned_decimal_number +- dot ++ fractional_part 0.1 decimal_digit) |||
    (return 0 +- dot ++ fractional_part 0.1 decimal_digit)                |||
    (unsigned_decimal_number +- dot ++ return 0.) >>:
        fun (n, p) -> float_of_int n +. p
-  ) e
+  ) m
 
-let decimal_fractional e =
-  signed Float.neg unsigned_decimal_fractional e
+let decimal_fractional m =
+  signed Float.neg unsigned_decimal_fractional m
 
-let decimal_scientific e =
+let decimal_scientific m =
   ((decimal_fractional |||
     (decimal_number >>: float_of_int)) +-
    cond "exponent delimiter" (fun c -> c = 'e' || c = 'E') 'e' ++
    decimal_number >>: fun (m, e) ->
      m *. Float.pow 10. (float_of_int e) (* FIXME *)
-   ) e
+   ) m
 
-let floating_point e =
+let floating_point m =
   (decimal_fractional |||
-   decimal_scientific) e
+   decimal_scientific) m
 ----
 
 .tests
@@ -1903,7 +1946,7 @@ let floating_point e =
     List.iter (fun (input, output) ->
       assert_same_results Float.print
         (None, [output, no_corr, []])
-        ((floating_point +- eof) None no_corr (stream_of_string input)))
+        ((floating_point +- eof) [] None no_corr (stream_of_string input)))
 ) ;
 ----
 
@@ -1914,9 +1957,9 @@ And finally the parser of any immediate number:
 ----
 type number = Int of integer
             | Float of float
-let number e =
+let number m =
   ((integer        >>: fun x -> Int x) |||
-   (floating_point >>: fun x -> Float x)) e
+   (floating_point >>: fun x -> Float x)) m
 ----
 
 === Character types
@@ -1927,18 +1970,20 @@ alphanumerics, newlines...
 .usual parsers: character classes
 [source,ml]
 ----
-let blank e =
-  cond "space" (fun c -> c = ' ' || c = '\t') ' ' e
+let blank m =
+  cond "space" (fun c -> c = ' ' || c = '\t') ' ' m
 
-let newline e =
-  (optional ~def:'\r' (item ~what:"\\r" '\r') -+
-   item ~what:"end of line" '\n') e
+let carriage_return m = item ~what:"carriage return" '\r' m
+let new_line m = item  ~what:"new line" '\n' m
 
-let whitespace e =
-  repeat_greedy ~sep:none ~what:"whitespaces" (blank ||| newline) e
+let newline m =
+  (optional ~def:'\r' carriage_return -+ new_line) m
 
-let opt_whitespace e =
-  optional_greedy ~def:[] whitespace e
+let whitespace m =
+  repeat_greedy ~sep:none ~what:"whitespaces" (blank ||| newline) m
+
+let opt_whitespace m =
+  optional_greedy ~def:[] whitespace m
 ----
 
 Notice we read greedily the whitespaces because we want to avoid a +whitespace
@@ -1947,10 +1992,10 @@ Notice we read greedily the whitespaces because we want to avoid a +whitespace
 .usual parsers: more character classes
 [source,ml]
 ----
-let lowercase e = range 'a' 'z' "lowercase" e
-let uppercase e = range 'A' 'Z' "uppercase" e
-let letter e = (lowercase ||| uppercase) e
-let alphanum e = (letter ||| decimal_digit) e
+let lowercase m = range 'a' 'z' "lowercase" m
+let uppercase m = range 'A' 'Z' "uppercase" m
+let letter m = (lowercase ||| uppercase) m
+let alphanum m = (letter ||| decimal_digit) m
 ----
 
 === Operations
@@ -1969,15 +2014,15 @@ as:
 
 [source,ml]
 ----
-let term e = (term +- any_binary_op ++ term) e
+let term m = (term +- any_binary_op ++ term) m
 ----
 
 with:
 
 [source,ml]
 ----
-let term1 e = ((term2 +- low_precedence_op ++ term2) ||| term2) e
-let term2 e = ((term3 +- higher_precedence_op ++ term3) ||| term3) e
+let term1 m = ((term2 +- low_precedence_op ++ term2) ||| term2) m
+let term2 m = ((term3 +- higher_precedence_op ++ term3) ||| term3) m
 (* etc... *)
 ----
 
@@ -1985,15 +2030,15 @@ Allowing recursion only after some input have been consumed:
 
 [source,ml]
 ----
-let rec this_is_ok e =
-  (item '{' -+ this_is_ok ++ item '}') e
+let rec this_is_ok m =
+  (item '{' -+ this_is_ok ++ item '}') m
 
-let rec this_is_infinite_recursion e =
-  (this_is_infinite_recursion ++ anything_else) e
+let rec this_is_infinite_recursion m =
+  (this_is_infinite_recursion ++ anything_else) m
 
-let rec this_is_still_infinite_recursion e =
-  (check "a check does not consume" some_check ++
-   this_is_still_infinite_recursion) e
+let rec this_is_still_infinite_recursion m =
+  (check some_check ++
+   this_is_still_infinite_recursion) m
 ----
 
 Now this chain will always parse left side first. If +1 + 2 * 3+ will properly
@@ -2054,8 +2099,8 @@ Let's see it in action:
 ----
 "binary_ops_reducer" >:: (
   fun _ctx ->
-    let term e = (decimal_digit >>: fun c -> Term c) e in
-    let op e = item '+' e in
+    let term m = (decimal_digit >>: fun c -> Term c) m in
+    let op m = item '+' m in
     let reduce t1 _op t2 = Op (t1, t2) in
     [ "1+2",
         Op (Term '1', Term '2'),
@@ -2073,11 +2118,11 @@ Let's see it in action:
       assert_same_results ~msg:"left assoc." binary_ops_reducer_test_result_print
         (None, [exp1, no_corr, []])
         ((binary_ops_reducer ~op ~term ~sep:none ~reduce ~right_associative:false
-          +- eof) None no_corr input) ;
+          +- eof) [] None no_corr input) ;
       assert_same_results ~msg:"right assoc." binary_ops_reducer_test_result_print
         (None, [exp2, no_corr, []])
         ((binary_ops_reducer ~op ~term ~sep:none ~reduce ~right_associative:true
-          +- eof) None no_corr input))
+          +- eof) [] None no_corr input))
 ) ;
 ----
 
@@ -2107,28 +2152,28 @@ Let's also test the handling of precedence with a small calculator:
 ----
 "precedence and associativity" >:: (
   fun _ctx ->
-    let value e = (decimal_digit >>: num_of_char) e in
+    let value m = (decimal_digit >>: num_of_char) m in
     let reduce t1 op t2 = match op with
       | '+' -> t1+t2 | '-' -> t1-t2
       | '*' -> t1*t2 | '/' -> t1/t2
       | '^' -> int_of_float((float_of_int t1)**(float_of_int t2))
       | _ -> assert false in
-    let rec left_assoc_low_prec e =
+    let rec left_assoc_low_prec m =
       binary_ops_reducer ~op:(item '+' ||| item '-')
                          ~term:left_assoc_high_prec
-                         ~sep:none ~reduce e
-    and left_assoc_high_prec e =
+                         ~sep:none ~reduce m
+    and left_assoc_high_prec m =
       binary_ops_reducer ~op:(item '*' ||| item '/')
                          ~term:right_assoc_higher_prec
-                         ~sep:none ~reduce e
-    and right_assoc_higher_prec e =
+                         ~sep:none ~reduce m
+    and right_assoc_higher_prec m =
       binary_ops_reducer ~op:(item '^')
                          ~right_associative:true
                          ~term:left_assoc_highest_prec
-                         ~sep:none ~reduce e
-    and left_assoc_highest_prec e =
+                         ~sep:none ~reduce m
+    and left_assoc_highest_prec m =
       (value |||
-       item '(' -+ left_assoc_low_prec +- item ')') e in
+       item '(' -+ left_assoc_low_prec +- item ')') m in
     [ "0",            0 ;
       "1+2",          3 ;
       "1+2+3",        6 ;
@@ -2148,7 +2193,7 @@ Let's also test the handling of precedence with a small calculator:
       let input = stream_of_string input_str in
       assert_same_results Int.print
         (None, [exp, no_corr, []])
-        ((left_assoc_low_prec +- eof) None no_corr input))
+        ((left_assoc_low_prec +- eof) [] None no_corr input))
 ) ;
 ----
 
