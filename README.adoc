@@ -658,18 +658,15 @@ let uniq = function
 
 (* version of assert_equal specialized for parser results *)
 let assert_same_results ?msg print_output (exp_err, exp) actual =
-  let print_results fmt (e, r) =
-    Printf.fprintf fmt "%a, %a"
-      print_error e
-      (List.print (print_result print_output)) r in
   ct_bind actual (fun (act_err, got) ->
     (* Many times we do not want to guess the errors (for instance
        when the parser actually succeeds): *)
     let act_err =
       if exp_err = None then None else act_err in
+    let printer = IO.to_string (print_results print_output) in
     ct_return (
       (* OUnit really should have an assert_same_elements *)
-      assert_equal ~printer:(IO.to_string print_results) ?msg
+      assert_equal ~printer ?msg
         (exp_err, List.sort compare exp)
         (act_err, List.sort compare got))) |>
   ignore
@@ -1638,6 +1635,11 @@ let print_result print_output fmt (x, corr, rest) =
     print_output x
     (print_corrections print_postok) corr
     print_stream rest
+
+let print_results print_output fmt (e, r) =
+  Printf.fprintf fmt "%a, %a"
+    print_error e
+    (List.print (print_result print_output)) r
 ----
 
 .Parser signatures
@@ -1647,6 +1649,9 @@ val print_error : 'o BatInnerIO.output -> error option -> unit
 val print_result : ('o BatInnerIO.output -> 'b -> unit) ->
                    'o BatInnerIO.output ->
                    'b possible_result -> unit
+val print_results : ('o BatInnerIO.output -> 'b -> unit) ->
+                    'o BatInnerIO.output ->
+                    (error option * 'b possible_result list) -> unit
 ----
 
 == Parsing usual things
