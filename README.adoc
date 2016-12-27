@@ -428,7 +428,8 @@ let new_error pt m = function
 
 With the idea that a stack of messages describing the context is maintained
 from one parser to the next as the context gets deeper. Therefore, every parser
-must accept this current stack as an additional input.
+must accept this current stack as an additional input and enrich it with
+whatever makes sense (which oftentimes require some hint from the caller).
 
 So that the new (and final) type for parsers expands to:
 
@@ -473,8 +474,8 @@ always be given the same one letter names:
 - +r+ for a list or possible results (of type +'b possible_result list+).
 
 The output itself, +(error option * 'b possible_result list) ct+ fits combining
-parsers but may be a bit uneasy to handle for the end user. This function turn
-it into a more manageable +result+ type:
+parsers but may be a bit of a mouthful for the end user to chew. This function
+turn it into a more manageable +result+ type:
 
 .Parser library: building a final result from possible results
 [source,ml]
@@ -1139,6 +1140,8 @@ val (-+) : 'b t -> 'd t -> 'd t
 val (--) : 'b t -> 'd t -> unit t
 ----
 
+Conveniently all those are left associative.
+
 Now let's test that we can indeed sequence parsers:
 
 .tests
@@ -1354,6 +1357,7 @@ We can easily define the greedy version of +repeat+ (that is, a version that
 swallows as many +p+ occurrences as present in the input stream) using check:
 
 .(erroneous) greedy repetition
+[NOTE]
 [source,ml]
 ----
 let repeat_greedy ~sep ?min ?max ?what p =
