@@ -421,7 +421,8 @@ let new_error pt m = function
     match pt, err.where with
     | EndOfStream, _ ->
       Some { where = pt ; what = m }
-    | Item (pos, _), Item (best_pos, _) when cmp_position pos best_pos > 0 ->
+    | Item (pos, _), Item (best_pos, _)
+      when cmp_position pos best_pos >= 0 ->
       Some { where = pt ; what = m }
     | _ -> e)
 ----
@@ -1061,7 +1062,6 @@ values of +p2+, +p1+ intermediary values being only meaningful to build +p2+.
 [source,ml]
 ----
 let bind p1 f m e c s =
-  (* TODO: should provide an explanation for what f does, and add this to the context when calling p2 *)
   ct_bind (p1 m e c s) (fun (e', r) ->
     (* For each possible result of p1, try to continue parsing with p2.
        Aggregate all encountered errors. *)
@@ -1210,6 +1210,7 @@ With sequences and alternatives we can start writing some interesting tests:
 "any: 'a' or 'b' but not 'z'" >:: (
   fun _ctx ->
     let a_or_b = item 'a' ||| item 'b' in
+    let z = stream_of_string "z" in
     assert_same_results Char.print
       (None, ['a', no_corr, []])
       (a_or_b [] None no_corr (stream_of_string "a")) ;
@@ -1217,14 +1218,13 @@ With sequences and alternatives we can start writing some interesting tests:
       (None, ['b', no_corr, []])
       (a_or_b [] None no_corr (stream_of_string "b")) ;
     assert_same_results Char.print
-      (Some { what = ["a"] ;
+      (Some { what = ["b"] ;
               where = Item (0, 'z') }, [])
-      (a_or_b [] None no_corr (stream_of_string "z")) ;
+      (a_or_b [] None no_corr z) ;
     (* Here we try with corrections: we make up the requested item
        in front of the actual one (check the 2 possibilities): *)
-    let z = stream_of_string "z" in
     assert_same_results Char.print
-      (Some { what = ["a"] ;
+      (Some { what = ["b"] ;
               where = Item (0, 'z') },
        ['a', correction_at (Item (0, 'z')) "a", z ;
         'b', correction_at (Item (0, 'z')) "b", z])
@@ -2061,10 +2061,10 @@ alphanumerics, newlines...
 [source,ml]
 ----
 let blank m =
-  cond "space" (fun c -> c = ' ' || c = '\t') ' ' m
+  cond "blank" (fun c -> c = ' ' || c = '\t') ' ' m
 
 let carriage_return m = item ~what:"carriage return" '\r' m
-let new_line m = item  ~what:"new line" '\n' m
+let new_line m = item ~what:"new line" '\n' m
 
 let newline m =
   (optional ~def:'\r' carriage_return -+ new_line) m
