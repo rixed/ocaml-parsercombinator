@@ -1279,31 +1279,34 @@ cut down on the many +optional (repeat p)+ that we would have otherwise.
 .Parser library: repetition of a parser
 [source,ml]
 ----
-let rec repeat ~sep ?(min=0) ?max ?what p m e c s =
-  (* TODO: do not repeat this when recursing. And make what a mandatory expl parameter as usual: *)
-  let m = "repeat"::m in (* add min/max ? *)
-  if max = Some 0 then (
-    if min = 0 then return [] m e c s
-    else ct_bind (take s) (fun (pt, _s') ->
-      let m = ("Too many "^ Option.default "repetitions" what)::m in
-      fail m (new_error pt m e) c s)
-  ) else (
-    let pred_ma = match max with None -> None
-                               | Some m -> Some (m-1) in
-    match min with
-    | 0 ->
-      (* we may stop here or continue *)
-      (optional ~def:[] (repeat ~sep ~min:1 ?max ?what p)) m e c s
-    | 1 ->
-      (* at least one more, everything else optional *)
-      ((p ++ optional ~def:[]
-                 (sep -+ (repeat ~sep ~min:1 ?max:pred_ma ?what p))) >>:
-        fun (x, xs) -> x::xs) m e c s
-    | _ ->
-      (* above that, repetition is mandatory *)
-      ((p +- sep ++ repeat ~sep ~min:(min-1) ?max:pred_ma ?what p) >>:
-        fun (x, xs) -> x::xs) m e c s
-  )
+let repeat ~sep ?(min=0) ?max ?what p m =
+  let m = "repeating"::m in (* add min/max ? *)
+  let rec loop ~min ?max m e c s =
+    if max = Some 0 then (
+      if min = 0 then return [] m e c s
+      (* note: if fail was taking this token itself then we could
+         get away with repeating the full m e c s parameters everywhere *)
+      else ct_bind (take s) (fun (pt, _s') ->
+        let m = ("Too many "^ Option.default "repetitions" what)::m in
+        fail m (new_error pt m e) c s)
+    ) else (
+      let pred_ma = match max with None -> None
+                                 | Some m -> Some (m-1) in
+      match min with
+      | 0 ->
+        (* we may stop here or continue *)
+        (optional ~def:[] (loop ~min:1 ?max)) m e c s
+      | 1 ->
+        (* at least one more, everything else optional *)
+        ((p ++ optional ~def:[]
+                   (sep -+ (loop ~min:1 ?max:pred_ma))) >>:
+          fun (x, xs) -> x::xs) m e c s
+      | _ ->
+        (* above that, repetition is mandatory *)
+        ((p +- sep ++ loop ~min:(min-1) ?max:pred_ma) >>:
+          fun (x, xs) -> x::xs) m e c s
+    ) in
+  loop ~min ?max m
 ----
 
 Notice there are two conditions that terminate the recursion: +max+ reaching
@@ -1804,6 +1807,8 @@ The more useful is probably to match some strings in the input stream:
 .usual parsers: strings
 [source,ml]
 ----
+open ParsersMisc
+
 let string s =
   let rec loop i =
     if i >= String.length s then return ()
@@ -1843,9 +1848,10 @@ let num_of_char c =
 
 let underscore m = item ~what:"underscore" '_' m
 
-let unsigned_decimal_number m =
+let unsigned_decimal_number ?what ?(inc_zero=true) m =
+  let m = may_add_context m what in
   let digits m = several ~sep:none decimal_digit m in
-  (non_zero_decimal_digit +-
+  ((if inc_zero then decimal_digit else non_zero_decimal_digit) +-
    optional ~def:' ' underscore ++
    optional ~def:[] (several ~sep:underscore digits) >>:
    fun (first, next) ->
@@ -1858,8 +1864,18 @@ let signed neg p =
   item ~what:"sign" '+' -+ p       |||
   (item ~what:"sign" '-' -+ p >>: neg)
 
-let decimal_number m =
-  signed Int.neg unsigned_decimal_number m
+let decimal_number ?(inc_zero=true) m =
+  signed Int.neg (unsigned_decimal_number ~inc_zero) m
+----
+
+with the help of:
+
+.ParsersMisc.ml: helper for enriching context
+[source,ml]
+----
+let may_add_context m = function
+  | None -> m
+  | Some w -> w::m
 ----
 
 We have made +num_of_char+ accept hexadecimal digits in foresight.
@@ -1916,9 +1932,9 @@ Finally, this parser can parse all kinds of integers seen so far:
 [source,ml]
 ----
 let integer m =
-  (decimal_number     |||
-   octal_number       |||
-   hexadecimal_number |||
+  (decimal_number ~inc_zero:false |||
+   octal_number                   |||
+   hexadecimal_number             |||
    binary_number) m
 ----
 
