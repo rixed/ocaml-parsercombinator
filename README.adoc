@@ -1792,18 +1792,33 @@ open SimpleUsual
 
 === Strings
 
-The more useful is probably to match some strings in the input stream:
+Starting from the +char+ parser that's an +item+ specialized in characters:
+
+.usual parsers: chars
+[source,ml]
+----
+let char ?what ?(case_sensitive=true) c =
+  let other_case c =
+    if Char.is_lowercase c then Char.uppercase c else
+    if Char.is_uppercase c then Char.lowercase c else c in
+  let c' = if case_sensitive then c else other_case c in
+  let expl =
+    Option.default_delayed (fun () -> String.of_char c) what in
+  cond expl (fun x -> x = c || x = c') c
+----
+
+...the parser matching a given string can be written:
 
 .usual parsers: strings
 [source,ml]
 ----
 open ParsersMisc
 
-let string s =
+let string ?case_sensitive s =
   let rec loop i =
     if i >= String.length s then return ()
     else (
-      (item ~what:s s.[i]) -- (loop (i+1))
+      (char ~what:s ?case_sensitive s.[i]) -- (loop (i+1))
     ) in
   loop 0
 ----
