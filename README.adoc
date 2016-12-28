@@ -1248,17 +1248,8 @@ let optional ~def p = p ||| return def
 let optional_greedy ~def p = (p +- check (nay p)) ||| return def
 ----
 
-The +optional_greedy+ above is to avoid terminating a parser on an optional
-parser, which would result in two possible results systematically.
-
-Indeed:
-
-[source,ML]
-----
-optional p ++ optional p
-----
-
-would yield 2 equivalent results.
+The +optional_greedy+ above is to avoid considering not consuming a matching
+token as a possible solution.
 
 .Parser signature
 [source,ml]
@@ -1279,15 +1270,14 @@ cut down on the many +optional (repeat p)+ that we would have otherwise.
 .Parser library: repetition of a parser
 [source,ml]
 ----
-let repeat ~sep ?(min=0) ?max ?what p m =
-  let m = "repeating"::m in (* add min/max ? *)
+let repeat ~sep ?(min=0) ?max ?(what="repeating") p m =
+  let m = what::m in
   let rec loop ~min ?max m e c s =
     if max = Some 0 then (
       if min = 0 then return [] m e c s
       (* note: if fail was taking this token itself then we could
          get away with repeating the full m e c s parameters everywhere *)
       else ct_bind (take s) (fun (pt, _s') ->
-        let m = ("Too many "^ Option.default "repetitions" what)::m in
         fail m (new_error pt m e) c s)
     ) else (
       let pred_ma = match max with None -> None
@@ -1533,8 +1523,8 @@ With all these new combinators, more interesting tests can be devised:
 ----
 let replace x _ = x
 
-let anything m e c s =
-  let m = "anything"::m in
+let anything ?(what="anything") m e c s =
+  let m = what::m in
   ct_bind (take s) (function
     | EndOfStream, _s' ->
       let m = "unexpected end of stream"::m in
@@ -1550,7 +1540,7 @@ Notice that +anything+ can only fail at end of input.
 [source,ml]
 ----
 val replace : token -> 'b -> token
-val anything : token t
+val anything : ?what:string -> token t
 ----
 
 == Miscellaneous
