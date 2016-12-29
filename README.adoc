@@ -476,9 +476,9 @@ always be given the same one letter names:
 - +p+ for a parser (of type +t+);
 - +r+ for a list or possible results (of type +'b possible_result list+).
 
-The output itself, +(error option * 'b possible_result list) ct+ fits combining
-parsers but may be a bit of a mouthful for the end user to chew. This function
-turn it into a more manageable +result+ type:
+The output itself, +(error option * 'b possible_result list) ct+ suits
+combining parsers but may be a bit of a mouthful for the end user to chew. This
+function turns it into a more edible +result+ type:
 
 .Parser library: building a final result from possible results
 [source,ml]
@@ -2315,9 +2315,7 @@ module type CONFIG = sig
   val read_buf : channel -> (buf * int * int) option ct
 end
 
-module BlockList (Conf : CONFIG) :
-  Parsers.CONFIG with type token = Conf.token
-                  and type position = unit =
+module BlockList (Conf : CONFIG) =
 struct
   include Conf
 
@@ -2327,22 +2325,22 @@ struct
       last : int ;
       mutable next_block : block option }
 
-  type non_empty_stream =
-    { block : block ;
-      next : int (* <2> *) }
+  type stream = Unstarted of { channel : channel ; mutable first_block : block option }
+              | Started of { channel : channel ; block : block ; next : int }
+              | Finished
 
-  type stream =
-    channel * non_empty_stream option (* <3> *)
+  let make_stream channel =
+    Unstarted { channel ; first_block = None }
 
   let print_stream fmt = function
-    | _, None -> Printf.fprintf fmt "EOF"
-    | _, Some _s -> Printf.fprintf fmt "TODO"
+    | Unstarted _ -> Printf.fprintf fmt "Unstarted"
+    | Started _  -> Printf.fprintf fmt "TODO"
+    | Finished  -> Printf.fprintf fmt "EOF"
 ----
 
 <1> These first and last indexes are fixed. They tell us where in the buffer
 we should start and stop reading ; this is not the stream pointer!
 <2> This is the stream pointer.
-<3> This option type is for being able to represent the empty stream.
 
 Notice that the chain of blocks is not persistent (because of the mutable
 next pointer) but the stream itself is: a stream can be copied and reused
@@ -2355,17 +2353,17 @@ So the stream reader can either read the next available token (wrapped into a
 [source,ml]
 ----
   let rec take = function
-    | (_, None) as s ->
+    | Finished as s ->
       ct_return (EndOfStream, s)
-    | (channel, Some s) as some_s ->
+    | Started s as stream ->
       if s.next < s.block.last then
         ct_return (
           Item ((), nth s.block.buffer s.next),
-          (channel, Some { s with next = s.next+1 }))
+          Started { s with next = s.next+1 })
       else (
         match s.block.next_block with
         | Some block ->
-          take (channel, Some { block ; next = block.first })
+          take (Started { s with block = block ; next = block.first })
         | None ->
 ----
 
@@ -2387,9 +2385,9 @@ So let's call +read_buf+ and wait, confident that nothing bad will happen:
 .ParsersConfig.ml: take next token from next block
 [source,ml]
 ----
-          ct_bind (read_buf channel) (function
+          ct_bind (read_buf s.channel) (function
           | None ->
-            ct_return (EndOfStream, some_s)
+            ct_return (EndOfStream, Finished)
           | Some (buffer, first, last) ->
             let next_block = { buffer ; first ; last ;
                                next_block = None } in
@@ -2402,8 +2400,34 @@ Of course it costs nothing to check the above assumption:
 ----
             assert (s.block.next_block = None) ;
             s.block.next_block <- Some next_block ;
-            take some_s
+            take stream
         ))
+----
+
+The case where the stream is not started yet is interesting: this stream has to
+be sharable as well, but we must have only one instance of the pointer to the
+next block (so that when one instance triggers the actual read all other
+instances can find the data) and we do not want to keep a pointer to the head
+of the list forever (we want the list to be garbage collected). So we merely
+have the mutable address of the optional first block.
+
+.ParsersConfig.ml: take from the head of the stream
+[source,ml]
+----
+    | Unstarted u as stream ->
+      (match u.first_block with
+      | None ->
+        ct_bind (read_buf u.channel) (function
+        | None ->
+          ct_return (EndOfStream, Finished)
+        | Some (buffer, first, last) ->
+          let next_block = { buffer ; first ; last ;
+                             next_block = None } in
+          assert (u.first_block = None) ;
+          u.first_block <- Some next_block ;
+          take stream)
+      | Some block ->
+        take (Started { channel = u.channel ; block ; next = block.first }))
 ----
 
 We can now add a few more definitions in there so that this BlockList look more
@@ -2431,7 +2455,10 @@ file:
 ----
 open Batteries
 
-module FileReader : ParsersConfig.CONFIG =
+module FileReader :
+  ParsersConfig.CONFIG with type token = char
+                        and type 'a ct = 'a Lwt.t
+                        and type channel = Lwt_unix.file_descr =
 struct
   (* Lwt bindings: *)
   type 'a ct = 'a Lwt.t
@@ -2468,7 +2495,10 @@ configuration a mere +in_channel+ from which bytes (tokens) will be read.
 ----
 open Batteries
 
-module FileReader : CONFIG =
+module FileReader :
+  CONFIG with type token = char
+          and type 'a ct = 'a
+          and type channel = Unix.file_descr =
 struct
   (* No continuation passing trickery needed: *)
   type 'a ct = 'a
