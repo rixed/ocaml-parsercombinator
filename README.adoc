@@ -201,7 +201,7 @@ computations (aka future values) but also a way to wrap a value into such a
 typically called `return` and `bind` but here prefixed with +ct_+ because we
 reserve those names for parser combinators:
 
-.Parser configuration
+.threading types
 [source,ml]
 ----
 type 'a ct
@@ -215,6 +215,7 @@ Thus the possibly blocking input mechanism:
 [NOTE]
 [source,ml]
 ----
+(* ...threading types... *)
 type stream
 val take : stream -> (token ParsersMisc.stream_item * stream) ct
 ----
@@ -368,6 +369,7 @@ have the final type for +stream+/+take+:
 .Parser configuration: now also supplying position
 [source,ml]
 ----
+(* ...threading types... *)
 type position
 type stream
 val take : stream -> ((position * token) ParsersMisc.stream_item * stream) ct
@@ -595,31 +597,25 @@ exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
 ----
 open ParsersCorrections
 
-let fail_or_maybe_not x (* <1> *) ?pos_from m e c s =
-  ct_bind
-    (take (Option.default s pos_from))
-    (fun (pt, _s') ->
-      if ParsersBoundedSet.is_full c then (
-        (* no more errors permitted so fail for real *)
-        fail m (new_error pt m e) c s
-      ) else (
-        (* Here we insert x in the stream ;
-           Shall we also try to replace postok with x?
-           In any case beware than s maybe end_of_stream.
-           TODO: two types of correction: replace and insert *)
-        (* Note that corrections still count as errors because there is no
-           guarantee that we will keep track of them: *)
-        return x m (new_error pt m e) (change_at c pt m) s))
+let fail_or_maybe_not x (* <1> *) m e c s =
+  ct_bind (take s) (fun (pt, _s') ->
+    if ParsersBoundedSet.is_full c then (
+      (* no more errors permitted so fail for real *)
+      fail m (new_error pt m e) c s
+    ) else (
+      (* Here we insert x in the stream ;
+         Shall we also try to replace postok with x?
+         In any case beware than s maybe end_of_stream.
+         TODO: two types of correction: replace and insert *)
+      (* Note that corrections still count as errors because there is no
+         guarantee that we will keep track of them: *)
+      return x m (new_error pt m e) (change_at c pt m) s))
 ----
 
 <1> Here we need an example value +x+ of type β in order to change the outcome
 of a failure. Which value exactly is not really a concern since only its type
 matters (although the error message could print it as an example, as OCaml
 compiler does when complaining about an incomplete pattern matching).
-
-Notice that the +pos_from+ parameter allows the caller to set the position in
-addition to the message of the correction. By default the position will be
-taken from the passed stream (+rest+).
 
 Another parser that does not consume any input is the +check+ parser that we
 have mentioned earlier. It is actually a combinator since it takes another
@@ -806,17 +802,17 @@ Another very useful and basic parser is the one that succeeds on EOF and
 fails everywhere else. It is useful to check that the input stream have been
 consumed entirely by the preceding parsers.
 
-TODO: the main usage is to remove all the partial solutions from the final
-result. Maybe we should provide a function for that, and get rid of this
-and from_pos in fail_or_maybe_not and empty_stream?
+We do not engage in error detection in this parser: mimicking success implies
+pretending the stream stops there, but most input streams could be trivially
+declared valid if the stream is cut short (empty string is often valid for
+instance). In case of spurious input tokens at the end shouldn't the error
+message be trivial enough already? Also, when error detection is allowed then
+we (should) also try to skip tokens, which is enough to correct a few spurious
+chars at the end.
 
-We may not want to engage in error detection in this parser: mimicking success
-implies pretending the stream stops there, but most input streams could be
-trivially declared valid if the stream is cut short (empty string is often
-valid for instance). In case of spurious input tokens at the end shouldn't the
-error message be trivial enough already? This is indeed tempting, as checking
-forcing +eof+ to succeed forces us to require an empty_stream from the
-configuration:
+The real reason of course is none of the above. It is that forcing +eof+ to
+succeed would require an 'empty_stream' from the configuration, which was
+too inconvenient.
 
 .Parser library: checking for EOF
 [source,ml]
@@ -827,34 +823,14 @@ let eof m e c s =
   ct_bind (take s) (function
     | EndOfStream, s' ->
       return () m e c s'
-    | _ ->
-      fail_or_maybe_not () ~pos_from:s
-        m e c empty_stream (* <1> *))
+    | pt, _s' ->
+      fail m (new_error pt m e) c s)
 ----
-
-<1> Here we will restart with +rest = []+. That's the only case when forcing
-success also alters the input stream. That's also the only use for
-+empty_string+.
 
 .Parser signature
 [source,ml]
 ----
 val eof : unit t
-----
-
-This uncalled for +empty_stream+ must therefore be provided by the parser
-configuration:
-
-.Parser configuration: empty stream
-[source,ml]
-----
-val empty_stream : stream
-----
-
-.other SimpleConfig definitions
-[source,ml]
-----
-let empty_stream = []
 ----
 
 And the accompanying tests:
@@ -875,6 +851,7 @@ And the accompanying tests:
               what = ["eof"] }, [])
       (eof [] None no_corr rest)
 ) ;
+(*
 "eof suggests truncation" >:: (
   fun _ctx ->
     assert_same_results Unit.print
@@ -882,6 +859,7 @@ And the accompanying tests:
                   "eof", [] ])
       (eof [] None corr rest)
 ) ;
+*)
 ----
 
 === First non trivial parser
@@ -2297,15 +2275,11 @@ associativity despite using parser combinators.
 
 == Configurations
 
-Here are provided some +Parsers.CONFIG+ for implementing properly resumable
-parsers (unlike the +SimpleConfig+ that was just good for unit tests) and a
-few simple position types ɣ.
+Here are provided some +Parsers.CONFIG+ implementing more complex parsers
+than the +SimpleConfig+ (that was tailored for unit tests) and a few simple
+position types ɣ.
 
-=== LWT
-
-+LWT+ already provides a +Lwt_stream.t+ type for streams, that you would expect
-to be persistent given the threading context. But actually those are
-destructive, therefore useless for us.
+=== Turning destructive reads into persistent streams
 
 Let's define a proper persistent stream type adapted to networking.
 
@@ -2320,30 +2294,33 @@ provide streams of token. We will therefore ask for another configuration
 module providing the actual token container (maybe a +Buffer.t+, a +bytes+, an
 array or any indexed container) with a +nth+ function returning the token at
 some designated index. This configuration module must also provide the function
-returning the (promise of a) next block (and the range we ought to parse).
+returning the (promise of a) next block (and the range we ought to parse). To
+limit functorization in end user code we will assume that this function also
+takes some additional parameter representing the channel that is being read
+(such as a file descriptor).
 
-.ParsersLwtConfig.ml: chained buffers of tokens
+.ParsersConfig.ml: turn a destructive stream into a persistent one
 [source,ml]
 ----
 open Batteries
 open ParsersMisc
 
 module type CONFIG = sig
+  (* ...threading types... *)
   type token
   val print_token : 'o BatInnerIO.output -> token -> unit
   type buf
   val nth : buf -> int -> token
-  val read_buf : unit -> (buf * int * int) option Lwt.t
+  type channel
+  val read_buf : channel -> (buf * int * int) option ct
 end
 
-module Make (TokConf : CONFIG) :
-  Parsers.CONFIG with type token = TokConf.token
+module BlockList (Conf : CONFIG) :
+  Parsers.CONFIG with type token = Conf.token
                   and type position = unit =
 struct
-  include TokConf
-  type position = unit
-  let cmp_position () () = 0
-  let print_position fmt () = ignore fmt
+  include Conf
+
   type block =
     { buffer : buf ;
       first : int ; (* <1> *)
@@ -2355,14 +2332,11 @@ struct
       next : int (* <2> *) }
 
   type stream =
-    non_empty_stream option (* <3> *)
+    channel * non_empty_stream option (* <3> *)
 
   let print_stream fmt = function
-    | None -> Printf.fprintf fmt "EOF"
-    | Some _s -> Printf.fprintf fmt "TODO"
-
-  (* ...other LwtConfig definitions... *)
-end
+    | _, None -> Printf.fprintf fmt "EOF"
+    | _, Some _s -> Printf.fprintf fmt "TODO"
 ----
 
 <1> These first and last indexes are fixed. They tell us where in the buffer
@@ -2377,22 +2351,22 @@ later regardless of what other copies are doing.
 So the stream reader can either read the next available token (wrapped into a
 +ct+) or wait until the next buffer to be ready:
 
-.other LwtConfig definitions: take next token
+.ParsersConfig.ml: The take function
 [source,ml]
 ----
-let rec take = function
-  | None as s ->
-    Lwt.return (EndOfStream, s)
-  | Some s as some_s ->
-    if s.next < s.block.last then
-      Lwt.return (
-        Item ((), nth s.block.buffer s.next),
-        Some { s with next = s.next+1 })
-    else (
-      match s.block.next_block with
-      | Some block ->
-        take (Some { block ; next = block.first })
-      | None ->
+  let rec take = function
+    | (_, None) as s ->
+      ct_return (EndOfStream, s)
+    | (channel, Some s) as some_s ->
+      if s.next < s.block.last then
+        ct_return (
+          Item ((), nth s.block.buffer s.next),
+          (channel, Some { s with next = s.next+1 }))
+      else (
+        match s.block.next_block with
+        | Some block ->
+          take (channel, Some { block ; next = block.first })
+        | None ->
 ----
 
 This is the problematic case. We have to request the next block, and add it to
@@ -2405,63 +2379,117 @@ have we spawned a new thread, and all other existing streams are in this
 thread own stack. This is not to say that one can not run two parsers
 simultaneously but then, of course, they will have to parse different streams.
 In other words, nothing else in the running program must be calling our
-+read_buf+ or we will miss some blocks. Hopefully that's obvious.
++read_buf+ or we will miss some blocks. Hopefully that's obvious enough that
+nobody will try to do that.
 
 So let's call +read_buf+ and wait, confident that nothing bad will happen:
 
-.other LwtConfig definitions: take next token from next block:
+.ParsersConfig.ml: take next token from next block
 [source,ml]
 ----
-        match%lwt read_buf () with
-        | None ->
-          Lwt.return (EndOfStream, some_s)
-        | Some (buffer, first, last) ->
-          let next_block = { buffer ; first ; last ;
-                             next_block = None } in
+          ct_bind (read_buf channel) (function
+          | None ->
+            ct_return (EndOfStream, some_s)
+          | Some (buffer, first, last) ->
+            let next_block = { buffer ; first ; last ;
+                               next_block = None } in
 ----
 
 Of course it costs nothing to check the above assumption:
 
-.other LwtConfig definitions: enqueue this block for laggers and retry
+.ParsersConfig.ml: enqueue this block for laggers and retry
 [source,ml]
 ----
-        assert (s.block.next_block = None) ;
-        s.block.next_block <- Some next_block ;
-        take some_s
-    )
+            assert (s.block.next_block = None) ;
+            s.block.next_block <- Some next_block ;
+            take some_s
+        ))
 ----
 
-A few more trivial definitions are needed to fulfill +Parsers.CONFIG+:
+We can now add a few more definitions in there so that this BlockList look more
+like a Parsers.CONFIG:
 
-.other LwtConfig definitions: missing bits
+.ParsersConfig.ml: turning it into an actual Parsers CONFIG
 [source,ml]
 ----
-type 'a ct = 'a Lwt.t
-let ct_bind = Lwt.bind
-let ct_return = Lwt.return
-let empty_stream = None
+  type position = unit
+  let cmp_position () () = 0
+  let print_position fmt () = ignore fmt
+end
 ----
 
-Example implementation that reads bytes from a file:
+=== LWT
 
-.ParsersLwtConfig.ml: reading bytes from a file
++LWT+ already provides a +Lwt_stream.t+ type for streams, that you would expect
+to be persistent given the threading context. But actually those are
+destructive, therefore useless for us. Let's use instead the list of blocks
+constructed above. HEre is an exemple implementation that reads bytes from a
+file:
+
+.ParsersLwtConfig.ml: file parsers for LWT
 [source,ml]
 ----
-module FileReader : CONFIG =
+open Batteries
+
+module FileReader : ParsersConfig.CONFIG =
 struct
+  (* Lwt bindings: *)
+  type 'a ct = 'a Lwt.t
+  let ct_bind = Lwt.bind
+  let ct_return = Lwt.return
+
+  (* Reading characters: *)
   type token = char
   let print_token fmt c =
     Printf.fprintf fmt "%C" c
 
+  (* From a file: *)
   type buf = bytes
   let nth = Bytes.get
-  let read_buf () =
+  type channel = Lwt_unix.file_descr
+  let read_buf channel =
     let max_len = 1024 in
     let buf = Bytes.create max_len in
-    let%lwt r = Lwt_unix.(read stdin buf 0 max_len) in
+    let%lwt r = Lwt_unix.read channel buf 0 max_len in
     Lwt.return (
       if r = 0 then None
       else Some (buf, 0, r))
+end
+----
+
+=== Blocking Unix CONFIG
+
+This configuration assumes that it is OK to block when reading tokens (assuming
+the parser runs in its own POSIX thread for instance). It's given as a
+configuration a mere +in_channel+ from which bytes (tokens) will be read. 
+
+.ParsersConfig.ml: Reading a file using normal blocking Unix read
+[source,ml]
+----
+open Batteries
+
+module FileReader : CONFIG =
+struct
+  (* No continuation passing trickery needed: *)
+  type 'a ct = 'a
+  let ct_bind x f = f x
+  let ct_return x = x
+
+  (* Reading characters: *)
+  type token = char
+  let print_token fmt c =
+    Printf.fprintf fmt "%C" c
+
+  (* From a file: *)
+  type buf = bytes
+  let nth = Bytes.get
+  type channel = Unix.file_descr
+  let read_buf channel =
+    let max_len = 1024 in
+    let buf = Bytes.create max_len in
+    let r = Unix.read channel buf 0 max_len in
+    if r = 0 then None
+    else Some (buf, 0, r)
 end
 ----
 
@@ -2496,7 +2524,6 @@ struct
   let ct_bind = Conf.ct_bind
   let ct_return = Conf.ct_return
   type stream = Conf.stream * int
-  let empty_stream = Conf.empty_stream, 0
   type position = int
   let cmp_position = Int.compare
   let print_position fmt ofs =
@@ -2531,8 +2558,6 @@ struct
   let ct_bind = Conf.ct_bind
   let ct_return = Conf.ct_return
   type stream = Conf.stream * int * int * char
-  let empty_stream =
-    Conf.empty_stream, 0, 0, 'x'
   type position = int * int
   let cmp_position (l1, c1) (l2, c2) =
     match Int.compare l1 l2 with

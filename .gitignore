@@ -30,5 +30,6 @@ ParsersUsual.ml
 ParsersMisc.ml
 ParsersPositions.ml
 ParsersLwtConfig.ml
+ParsersConfig.ml
 README.html
 helpers.cache

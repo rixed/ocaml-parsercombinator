@@ -8,9 +8,11 @@ XARCHIVES = $(ARCHIVES:.cma=.cmxa)
 # First extract the code from README
 GEN_ARC_SOURCES = \
 	ParsersMisc.ml ParsersBoundedSet.ml ParsersCorrections.ml \
-	Parsers.ml ParsersUsual.ml ParsersPositions.ml
+	Parsers.ml ParsersUsual.ml ParsersPositions.ml \
+	ParsersConfig.ml
 
-GEN_SOURCES = $(GEN_ARC_SOURCES) ParsersLwtConfig.ml test.ml
+GEN_SOURCES = \
+	$(GEN_ARC_SOURCES) ParsersLwtConfig.ml test.ml
 
 GEN_FILES = $(GEN_SOURCES) README.html
 
@@ -33,6 +35,12 @@ parsercombinator.cma: $(patsubst %.mli,%.cmo,$(filter %.mli, $(GEN_ARC_SOURCES))
 	$(OCAMLC)   -a -o $@ -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $(patsubst %.ml,%.cmo,$(filter %.ml, $(GEN_ARC_SOURCES)))
 parsercombinator.cmxa: $(patsubst %.mli,%.cmi,$(filter %.mli, $(GEN_ARC_SOURCES))) $(patsubst %.ml,%.cmx,$(filter %.ml, $(GEN_ARC_SOURCES)))
 	$(OCAMLOPT) -a -o $@ -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $(patsubst %.ml,%.cmx,$(filter %.ml, $(GEN_ARC_SOURCES)))
+
+ParsersLwtConfig.cmx: parsercombinator.cmxa ParsersLwtConfig.ml
+	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) -c $^
+
+ParsersLwtConfig.cmo: parsercombinator.cma ParsersLwtConfig.ml
+	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $^
 
 parsercombinator-lwt.cma: ParsersLwtConfig.cmo
 	$(OCAMLC)   -a -o $@ -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $^
