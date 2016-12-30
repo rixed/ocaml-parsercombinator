@@ -1704,20 +1704,23 @@ let print_possible_results print_output fmt (e, r) =
     print_error e
     (List.print (print_possible_result print_output)) r
 
-let print_result print_output fmt = function
-  | Ok b -> print_output fmt b
-  | Bad (Approximation (b, c)) ->
+let print_bad_result print_output fmt = function
+  | Approximation (b, c) ->
     Printf.fprintf fmt "Approximately: %a (corrections: %a)"
       print_output b
       (print_corrections print_postok) c
-  | Bad (Ambiguous lst) ->
+  | Ambiguous lst ->
     Printf.fprintf fmt "Ambiguous: %a"
       (List.print (fun fmt (b, c) ->
         Printf.fprintf fmt "%a (corrections: %a)"
           print_output b
           (print_corrections print_postok) c)) lst
-  | Bad (NoSolution e) ->
+  | NoSolution e ->
     print_error fmt e
+
+let print_result print_output fmt = function
+  | Ok b -> print_output fmt b
+  | Bad e -> print_bad_result print_output fmt e
 ----
 
 .Parser signature
@@ -1734,6 +1737,11 @@ val print_possible_results :
   ('o BatInnerIO.output -> 'b -> unit) ->
   'o BatInnerIO.output ->
   (error option * 'b possible_result list) -> unit
+
+val print_bad_result :
+  ('o BatInnerIO.output -> 'b -> unit) ->
+  'o BatInnerIO.output ->
+  'b failure -> unit
 
 val print_result :
   ('o BatInnerIO.output -> 'b -> unit) ->
