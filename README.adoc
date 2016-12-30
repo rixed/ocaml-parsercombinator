@@ -486,13 +486,13 @@ function turns it into a more edible +result+ type:
 let to_result (e, r) =
   (* If we have a single solution then that's the one! *)
   match r with
-  | [ b, c, _s ] ->
-    if ParsersBoundedSet.is_empty c then Ok b
-    else Bad (Approximation (b, c))
+  | [ b, c, s ] ->
+    if ParsersBoundedSet.is_empty c then Ok (b, s)
+    else Bad (Approximation (b, c, s))
   | [] ->
     Bad (NoSolution e)
   | lst ->
-    Bad (Ambiguous (List.map (fun (b, c, _s) -> b, c) lst))
+    Bad (Ambiguous lst)
 ----
 
 of type:
@@ -501,7 +501,7 @@ of type:
 [source,ml]
 ----
 val to_result : error option * 'b possible_result list ->
-                ('b, 'b failure) result
+                ('b * stream, 'b failure) result
 ----
 
 with:
@@ -510,8 +510,8 @@ with:
 [source,ml]
 ----
 type 'b failure =
-  | Approximation of ('b * (position * token) ParsersCorrections.t)
-  | Ambiguous of ('b * (position * token) ParsersCorrections.t) list
+  | Approximation of ('b * (position * token) ParsersCorrections.t * stream)
+  | Ambiguous of ('b * (position * token) ParsersCorrections.t * stream) list
   | NoSolution of error option
 ----
 
@@ -1705,13 +1705,13 @@ let print_possible_results print_output fmt (e, r) =
     (List.print (print_possible_result print_output)) r
 
 let print_bad_result print_output fmt = function
-  | Approximation (b, c) ->
+  | Approximation (b, c, _s) ->
     Printf.fprintf fmt "Approximately: %a (corrections: %a)"
       print_output b
       (print_corrections print_postok) c
   | Ambiguous lst ->
     Printf.fprintf fmt "Ambiguous: %a"
-      (List.print (fun fmt (b, c) ->
+      (List.print (fun fmt (b, c, _s) ->
         Printf.fprintf fmt "%a (corrections: %a)"
           print_output b
           (print_corrections print_postok) c)) lst
@@ -1719,7 +1719,7 @@ let print_bad_result print_output fmt = function
     print_error fmt e
 
 let print_result print_output fmt = function
-  | Ok b -> print_output fmt b
+  | Ok (b, _s) -> print_output fmt b
   | Bad e -> print_bad_result print_output fmt e
 ----
 
@@ -1746,7 +1746,7 @@ val print_bad_result :
 val print_result :
   ('o BatInnerIO.output -> 'b -> unit) ->
   'o BatInnerIO.output ->
-  ('b, 'b failure) result -> unit
+  ('b * stream, 'b failure) result -> unit
 ----
 
 
@@ -2446,7 +2446,8 @@ like a Parsers.CONFIG:
 ----
   type position = unit
   let cmp_position () () = 0
-  let print_position fmt () = ignore fmt
+  let print_position fmt () =
+    String.print fmt "some location"
 end
 ----
 
