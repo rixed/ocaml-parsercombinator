@@ -764,7 +764,7 @@ Notice that we have to force the type of +assert_same_results+ to be +unit+
 demonstrably equivalent to +unit+ given +SimpleConfig+ but still makes the
 compiler to grumble.
 
-Let's warm this with simple tests for +return+ and +fail+ (which really does
+Let's warm this up with simple tests for +return+ and +fail+ (which really does
 not cause too much worries):
 
 .tests
@@ -2375,7 +2375,7 @@ struct
       mutable next_block : block option }
 
   type stream = Unstarted of { channel : channel ; mutable first_block : block option }
-              | Started of { channel : channel ; block : block ; next : int }
+              | Started of { channel : channel ; block : block ; next : int (* <2> *) }
               | Finished
 
   let make_stream channel =
