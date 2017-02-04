@@ -836,7 +836,7 @@ computations (aka future values) but also a way to wrap a value into such a
 typically called <code>return</code> and <code>bind</code> but here prefixed with <code>ct_</code> because we
 reserve those names for parser combinators:</p></div>
 <div class="listingblock">
-<div class="title">Parser configuration</div>
+<div class="title">threading types</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
 by Lorenzo Bettini
 http://www.lorenzobettini.it
@@ -851,7 +851,8 @@ http://www.gnu.org/software/src-highlite -->
 by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">type</span></span> stream
+<pre><tt><span style="font-style: italic"><span style="color: #9A1900">(* ...threading types... *)</span></span>
+<span style="font-weight: bold"><span style="color: #0000FF">type</span></span> stream
 <span style="font-weight: bold"><span style="color: #0000FF">val</span></span> take <span style="color: #990000">:</span> stream <span style="color: #990000">-&gt;</span> <span style="color: #990000">(</span>token <span style="font-weight: bold"><span style="color: #000080">ParsersMisc</span></span><span style="color: #990000">.</span>stream_item <span style="color: #990000">*</span> stream<span style="color: #990000">)</span> ct</tt></pre></div></div>
 <div class="paragraph"><p>With the <code>stream_item</code> type being like an <code>option</code> type with more specific
 constructors, defined in a separate module for fear of circular dependencies:</p></div>
@@ -991,7 +992,8 @@ have the final type for <code>stream</code>/<code>take</code>:</p></div>
 by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">type</span></span> position
+<pre><tt><span style="font-style: italic"><span style="color: #9A1900">(* ...threading types... *)</span></span>
+<span style="font-weight: bold"><span style="color: #0000FF">type</span></span> position
 <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> stream
 <span style="font-weight: bold"><span style="color: #0000FF">val</span></span> take <span style="color: #990000">:</span> stream <span style="color: #990000">-&gt;</span> <span style="color: #990000">((</span>position <span style="color: #990000">*</span> token<span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #000080">ParsersMisc</span></span><span style="color: #990000">.</span>stream_item <span style="color: #990000">*</span> stream<span style="color: #990000">)</span> ct</tt></pre></div></div>
 <div class="listingblock">
@@ -1122,9 +1124,9 @@ always be given the same one letter names:</p></div>
 </p>
 </li>
 </ul></div>
-<div class="paragraph"><p>The output itself, <code>(error option * 'b possible_result list) ct</code> fits combining
-parsers but may be a bit of a mouthful for the end user to chew. This function
-turn it into a more manageable <code>result</code> type:</p></div>
+<div class="paragraph"><p>The output itself, <code>(error option * 'b possible_result list) ct</code> suits
+combining parsers but may be a bit of a mouthful for the end user to chew. This
+function turns it into a more edible <code>result</code> type:</p></div>
 <div class="listingblock">
 <div class="title">Parser library: building a final result from possible results</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
@@ -1134,13 +1136,13 @@ http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> to_result <span style="color: #990000">(</span>e<span style="color: #990000">,</span> r<span style="color: #990000">)</span> <span style="color: #990000">=</span>
   <span style="font-style: italic"><span style="color: #9A1900">(* If we have a single solution then that's the one! *)</span></span>
   <span style="font-weight: bold"><span style="color: #0000FF">match</span></span> r <span style="font-weight: bold"><span style="color: #0000FF">with</span></span>
-  <span style="color: #990000">|</span> <span style="color: #990000">[</span> b<span style="color: #990000">,</span> c<span style="color: #990000">,</span> _s <span style="color: #990000">]</span> <span style="color: #990000">-&gt;</span>
-    <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> <span style="font-weight: bold"><span style="color: #000080">ParsersBoundedSet</span></span><span style="color: #990000">.</span>is_empty c <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="color: #009900">Ok</span> b
-    <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">Approximation</span> <span style="color: #990000">(</span>b<span style="color: #990000">,</span> c<span style="color: #990000">))</span>
+  <span style="color: #990000">|</span> <span style="color: #990000">[</span> b<span style="color: #990000">,</span> c<span style="color: #990000">,</span> s <span style="color: #990000">]</span> <span style="color: #990000">-&gt;</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> <span style="font-weight: bold"><span style="color: #000080">ParsersBoundedSet</span></span><span style="color: #990000">.</span>is_empty c <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="color: #009900">Ok</span> <span style="color: #990000">(</span>b<span style="color: #990000">,</span> s<span style="color: #990000">)</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">Approximation</span> <span style="color: #990000">(</span>b<span style="color: #990000">,</span> c<span style="color: #990000">,</span> s<span style="color: #990000">))</span>
   <span style="color: #990000">|</span> <span style="color: #990000">[]</span> <span style="color: #990000">-&gt;</span>
     <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">NoSolution</span> e<span style="color: #990000">)</span>
   <span style="color: #990000">|</span> lst <span style="color: #990000">-&gt;</span>
-    <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">Ambiguous</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">List</span></span><span style="color: #990000">.</span>map <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> <span style="color: #990000">(</span>b<span style="color: #990000">,</span> c<span style="color: #990000">,</span> _s<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span> b<span style="color: #990000">,</span> c<span style="color: #990000">)</span> lst<span style="color: #990000">))</span></tt></pre></div></div>
+    <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">Ambiguous</span> lst<span style="color: #990000">)</span></tt></pre></div></div>
 <div class="paragraph"><p>of type:</p></div>
 <div class="listingblock">
 <div class="title">Parser signature</div>
@@ -1149,7 +1151,7 @@ by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">val</span></span> to_result <span style="color: #990000">:</span> error <span style="color: #009900">option</span> <span style="color: #990000">*</span> 'b possible_result <span style="color: #009900">list</span> <span style="color: #990000">-&gt;</span>
-                <span style="color: #990000">(</span>'b<span style="color: #990000">,</span> 'b failure<span style="color: #990000">)</span> result</tt></pre></div></div>
+                <span style="color: #990000">(</span>'b <span style="color: #990000">*</span> stream<span style="color: #990000">,</span> 'b failure<span style="color: #990000">)</span> result</tt></pre></div></div>
 <div class="paragraph"><p>with:</p></div>
 <div class="listingblock">
 <div class="title">final parser type: many ways to fail</div>
@@ -1158,8 +1160,8 @@ by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">type</span></span> 'b failure <span style="color: #990000">=</span>
-  <span style="color: #990000">|</span> <span style="color: #009900">Approximation</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> <span style="color: #990000">(</span>'b <span style="color: #990000">*</span> <span style="color: #990000">(</span>position <span style="color: #990000">*</span> token<span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #000080">ParsersCorrections</span></span><span style="color: #990000">.</span>t<span style="color: #990000">)</span>
-  <span style="color: #990000">|</span> <span style="color: #009900">Ambiguous</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> <span style="color: #990000">(</span>'b <span style="color: #990000">*</span> <span style="color: #990000">(</span>position <span style="color: #990000">*</span> token<span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #000080">ParsersCorrections</span></span><span style="color: #990000">.</span>t<span style="color: #990000">)</span> <span style="color: #009900">list</span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Approximation</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> <span style="color: #990000">(</span>'b <span style="color: #990000">*</span> <span style="color: #990000">(</span>position <span style="color: #990000">*</span> token<span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #000080">ParsersCorrections</span></span><span style="color: #990000">.</span>t <span style="color: #990000">*</span> stream<span style="color: #990000">)</span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Ambiguous</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> <span style="color: #990000">(</span>'b <span style="color: #990000">*</span> <span style="color: #990000">(</span>position <span style="color: #990000">*</span> token<span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #000080">ParsersCorrections</span></span><span style="color: #990000">.</span>t <span style="color: #990000">*</span> stream<span style="color: #990000">)</span> <span style="color: #009900">list</span>
   <span style="color: #990000">|</span> <span style="color: #009900">NoSolution</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> error <span style="color: #009900">option</span></tt></pre></div></div>
 <div class="paragraph"><p>Notice that we pay no attention to whether the stream has been emptied or not.
 If one want to reach the end of the input stream then that must be part of the
@@ -1251,21 +1253,19 @@ VY6xDcAwCAS/pPQaLim9QmajdOk2I2SNrMEIlARIoigU8Cek/4e7zdHaWOYOVwaoA6wOCw05Y7FB
 gE0tIWQ+sBcwKM8qoD/wB5wGL8hjfdzWrh01GRp1hInGjDoXwHgsFuzBVLQAAABDdEVYdFNvZnR3
 YXJlAEAoIylJbWFnZU1hZ2ljayA0LjIuOCA5OS8wOC8wMSBjcmlzdHlAbXlzdGljLmVzLmR1cG9u
 dC5jb22RuiG4AAAAKnRFWHRTaWduYXR1cmUANThhMDcyZTA3MGRhMjJmNjEzNWNiZDNlNDE0NTQ2
-ZjloaiHtAAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30AAAAASUVORK5CYII=" /> *)</span></span> <span style="color: #990000">?</span>pos_from m e c s <span style="color: #990000">=</span>
-  ct_bind
-    <span style="color: #990000">(</span>take <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">Option</span></span><span style="color: #990000">.</span>default s pos_from<span style="color: #990000">))</span>
-    <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> <span style="color: #990000">(</span>pt<span style="color: #990000">,</span> _s'<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
-      <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> <span style="font-weight: bold"><span style="color: #000080">ParsersBoundedSet</span></span><span style="color: #990000">.</span>is_full c <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="color: #990000">(</span>
-        <span style="font-style: italic"><span style="color: #9A1900">(* no more errors permitted so fail for real *)</span></span>
-        fail m <span style="color: #990000">(</span>new_error pt m e<span style="color: #990000">)</span> c s
-      <span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #990000">(</span>
-        <span style="font-style: italic"><span style="color: #9A1900">(* Here we insert x in the stream ;</span></span>
-<span style="font-style: italic"><span style="color: #9A1900">           Shall we also try to replace postok with x?</span></span>
-<span style="font-style: italic"><span style="color: #9A1900">           In any case beware than s maybe end_of_stream.</span></span>
-<span style="font-style: italic"><span style="color: #9A1900">           TODO: two types of correction: replace and insert *)</span></span>
-        <span style="font-style: italic"><span style="color: #9A1900">(* Note that corrections still count as errors because there is no</span></span>
-<span style="font-style: italic"><span style="color: #9A1900">           guarantee that we will keep track of them: *)</span></span>
-        return x m <span style="color: #990000">(</span>new_error pt m e<span style="color: #990000">)</span> <span style="color: #990000">(</span>change_at c pt m<span style="color: #990000">)</span> s<span style="color: #990000">))</span></tt></pre></div></div>
+ZjloaiHtAAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30AAAAASUVORK5CYII=" /> *)</span></span> m e c s <span style="color: #990000">=</span>
+  ct_bind <span style="color: #990000">(</span>take s<span style="color: #990000">)</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> <span style="color: #990000">(</span>pt<span style="color: #990000">,</span> _s'<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> <span style="font-weight: bold"><span style="color: #000080">ParsersBoundedSet</span></span><span style="color: #990000">.</span>is_full c <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="color: #990000">(</span>
+      <span style="font-style: italic"><span style="color: #9A1900">(* no more errors permitted so fail for real *)</span></span>
+      fail m <span style="color: #990000">(</span>new_error pt m e<span style="color: #990000">)</span> c s
+    <span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #990000">(</span>
+      <span style="font-style: italic"><span style="color: #9A1900">(* Here we insert x in the stream ;</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">         Shall we also try to replace postok with x?</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">         In any case beware than s maybe end_of_stream.</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">         TODO: two types of correction: replace and insert *)</span></span>
+      <span style="font-style: italic"><span style="color: #9A1900">(* Note that corrections still count as errors because there is no</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">         guarantee that we will keep track of them: *)</span></span>
+      return x m <span style="color: #990000">(</span>new_error pt m e<span style="color: #990000">)</span> <span style="color: #990000">(</span>change_at c pt m<span style="color: #990000">)</span> s<span style="color: #990000">))</span></tt></pre></div></div>
 <div class="colist arabic"><table>
 <tr><td><img alt="1" src="data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAAAAABzHgM7AAAAAmJLR0QAAKqNIzIAAABjSURBVHja
 VY6xDcAwCAS/pPQaLim9QmajdOk2I2SNrMEIlARIoigU8Cek/4e7zdHaWOYOVwaoA6wOCw05Y7FB
@@ -1279,9 +1279,6 @@ matters (although the error message could print it as an example, as OCaml
 compiler does when complaining about an incomplete pattern matching).
 </td></tr>
 </table></div>
-<div class="paragraph"><p>Notice that the <code>pos_from</code> parameter allows the caller to set the position in
-addition to the message of the correction. By default the position will be
-taken from the passed stream (<code>rest</code>).</p></div>
 <div class="paragraph"><p>Another parser that does not consume any input is the <code>check</code> parser that we
 have mentioned earlier. It is actually a combinator since it takes another
 parser as parameter. It checks that the given parser succeed but then return
@@ -1429,7 +1426,7 @@ http://www.gnu.org/software/src-highlite -->
 (with <code>ignore</code>) otherwise it would be <code>unit P.ct P.ct</code>, which should be
 demonstrably equivalent to <code>unit</code> given <code>SimpleConfig</code> but still makes the
 compiler to grumble.</p></div>
-<div class="paragraph"><p>Let&#8217;s warm this with simple tests for <code>return</code> and <code>fail</code> (which really does
+<div class="paragraph"><p>Let&#8217;s warm this up with simple tests for <code>return</code> and <code>fail</code> (which really does
 not cause too much worries):</p></div>
 <div class="listingblock">
 <div class="title">tests</div>
@@ -1467,16 +1464,16 @@ http://www.gnu.org/software/src-highlite -->
 <div class="paragraph"><p>Another very useful and basic parser is the one that succeeds on EOF and
 fails everywhere else. It is useful to check that the input stream have been
 consumed entirely by the preceding parsers.</p></div>
-<div class="paragraph"><p>TODO: the main usage is to remove all the partial solutions from the final
-result. Maybe we should provide a function for that, and get rid of this
-and from_pos in fail_or_maybe_not and empty_stream?</p></div>
-<div class="paragraph"><p>We may not want to engage in error detection in this parser: mimicking success
-implies pretending the stream stops there, but most input streams could be
-trivially declared valid if the stream is cut short (empty string is often
-valid for instance). In case of spurious input tokens at the end shouldn&#8217;t the
-error message be trivial enough already? This is indeed tempting, as checking
-forcing <code>eof</code> to succeed forces us to require an empty_stream from the
-configuration:</p></div>
+<div class="paragraph"><p>We do not engage in error detection in this parser: mimicking success implies
+pretending the stream stops there, but most input streams could be trivially
+declared valid if the stream is cut short (empty string is often valid for
+instance). In case of spurious input tokens at the end shouldn&#8217;t the error
+message be trivial enough already? Also, when error detection is allowed then
+we (should) also try to skip tokens, which is enough to correct a few spurious
+chars at the end.</p></div>
+<div class="paragraph"><p>The real reason of course is none of the above. It is that forcing <code>eof</code> to
+succeed would require an <em>empty_stream</em> from the configuration, which was
+too inconvenient.</p></div>
 <div class="listingblock">
 <div class="title">Parser library: checking for EOF</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
@@ -1489,27 +1486,8 @@ http://www.gnu.org/software/src-highlite -->
   ct_bind <span style="color: #990000">(</span>take s<span style="color: #990000">)</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
     <span style="color: #990000">|</span> <span style="color: #009900">EndOfStream</span><span style="color: #990000">,</span> s' <span style="color: #990000">-&gt;</span>
       return <span style="color: #990000">()</span> m e c s'
-    <span style="color: #990000">|</span> _ <span style="color: #990000">-&gt;</span>
-      fail_or_maybe_not <span style="color: #990000">()</span> <span style="color: #990000">~</span>pos_from<span style="color: #990000">:</span>s
-        m e c empty_stream <span style="font-style: italic"><span style="color: #9A1900">(* <img alt="1" src="data:image/png;base64,
-iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAAAAABzHgM7AAAAAmJLR0QAAKqNIzIAAABjSURBVHja
-VY6xDcAwCAS/pPQaLim9QmajdOk2I2SNrMEIlARIoigU8Cek/4e7zdHaWOYOVwaoA6wOCw05Y7FB
-gE0tIWQ+sBcwKM8qoD/wB5wGL8hjfdzWrh01GRp1hInGjDoXwHgsFuzBVLQAAABDdEVYdFNvZnR3
-YXJlAEAoIylJbWFnZU1hZ2ljayA0LjIuOCA5OS8wOC8wMSBjcmlzdHlAbXlzdGljLmVzLmR1cG9u
-dC5jb22RuiG4AAAAKnRFWHRTaWduYXR1cmUANThhMDcyZTA3MGRhMjJmNjEzNWNiZDNlNDE0NTQ2
-ZjloaiHtAAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30AAAAASUVORK5CYII=" /> *)</span></span><span style="color: #990000">)</span></tt></pre></div></div>
-<div class="colist arabic"><table>
-<tr><td><img alt="1" src="data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAAAAABzHgM7AAAAAmJLR0QAAKqNIzIAAABjSURBVHja
-VY6xDcAwCAS/pPQaLim9QmajdOk2I2SNrMEIlARIoigU8Cek/4e7zdHaWOYOVwaoA6wOCw05Y7FB
-gE0tIWQ+sBcwKM8qoD/wB5wGL8hjfdzWrh01GRp1hInGjDoXwHgsFuzBVLQAAABDdEVYdFNvZnR3
-YXJlAEAoIylJbWFnZU1hZ2ljayA0LjIuOCA5OS8wOC8wMSBjcmlzdHlAbXlzdGljLmVzLmR1cG9u
-dC5jb22RuiG4AAAAKnRFWHRTaWduYXR1cmUANThhMDcyZTA3MGRhMjJmNjEzNWNiZDNlNDE0NTQ2
-ZjloaiHtAAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30AAAAASUVORK5CYII=" /></td><td>
-Here we will restart with <code>rest = []</code>. That&#8217;s the only case when forcing
-success also alters the input stream. That&#8217;s also the only use for
-<code>empty_string</code>.
-</td></tr>
-</table></div>
+    <span style="color: #990000">|</span> pt<span style="color: #990000">,</span> _s' <span style="color: #990000">-&gt;</span>
+      fail m <span style="color: #990000">(</span>new_error pt m e<span style="color: #990000">)</span> c s<span style="color: #990000">)</span></tt></pre></div></div>
 <div class="listingblock">
 <div class="title">Parser signature</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
@@ -1517,22 +1495,6 @@ by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">val</span></span> eof <span style="color: #990000">:</span> <span style="color: #009900">unit</span> t</tt></pre></div></div>
-<div class="paragraph"><p>This uncalled for <code>empty_stream</code> must therefore be provided by the parser
-configuration:</p></div>
-<div class="listingblock">
-<div class="title">Parser configuration: empty stream</div>
-<div class="content"><!-- Generator: GNU source-highlight 3.1.8
-by Lorenzo Bettini
-http://www.lorenzobettini.it
-http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">val</span></span> empty_stream <span style="color: #990000">:</span> stream</tt></pre></div></div>
-<div class="listingblock">
-<div class="title">other SimpleConfig definitions</div>
-<div class="content"><!-- Generator: GNU source-highlight 3.1.8
-by Lorenzo Bettini
-http://www.lorenzobettini.it
-http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> empty_stream <span style="color: #990000">=</span> <span style="color: #990000">[]</span></tt></pre></div></div>
 <div class="paragraph"><p>And the accompanying tests:</p></div>
 <div class="listingblock">
 <div class="title">tests</div>
@@ -1553,13 +1515,15 @@ http://www.gnu.org/software/src-highlite -->
               what <span style="color: #990000">=</span> <span style="color: #990000">[</span><span style="color: #FF0000">"eof"</span><span style="color: #990000">]</span> <span style="color: #FF0000">}</span><span style="color: #990000">,</span> <span style="color: #990000">[])</span>
       <span style="color: #990000">(</span>eof <span style="color: #990000">[]</span> <span style="color: #009900">None</span> no_corr rest<span style="color: #990000">)</span>
 <span style="color: #990000">)</span> <span style="color: #990000">;</span>
-<span style="color: #FF0000">"eof suggests truncation"</span> <span style="color: #990000">&gt;::</span> <span style="color: #990000">(</span>
-  <span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> _ctx <span style="color: #990000">-&gt;</span>
-    assert_same_results <span style="font-weight: bold"><span style="color: #000080">Unit</span></span><span style="color: #990000">.</span>print
-      <span style="color: #990000">(</span><span style="color: #009900">None</span><span style="color: #990000">,</span> <span style="color: #990000">[(),</span> correction_at <span style="color: #990000">(</span><span style="color: #009900">Item</span> <span style="color: #990000">(</span><span style="color: #993399">0</span><span style="color: #990000">,</span> 'g'<span style="color: #990000">))</span>
-                  <span style="color: #FF0000">"eof"</span><span style="color: #990000">,</span> <span style="color: #990000">[]</span> <span style="color: #990000">])</span>
-      <span style="color: #990000">(</span>eof <span style="color: #990000">[]</span> <span style="color: #009900">None</span> corr rest<span style="color: #990000">)</span>
-<span style="color: #990000">)</span> <span style="color: #990000">;</span></tt></pre></div></div>
+<span style="font-style: italic"><span style="color: #9A1900">(*</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">"eof suggests truncation" &gt;:: (</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">  fun _ctx -&gt;</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">    assert_same_results Unit.print</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">      (None, [(), correction_at (Item (0, 'g'))</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">                  "eof", [] ])</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">      (eof [] None corr rest)</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">) ;</span></span>
+<span style="font-style: italic"><span style="color: #9A1900">*)</span></span></tt></pre></div></div>
 </div>
 <div class="sect2">
 <h3 id="_first_non_trivial_parser">4.4. First non trivial parser</h3>
@@ -1933,17 +1897,11 @@ by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> optional <span style="color: #990000">~</span>def p <span style="color: #990000">=</span> p <span style="color: #990000">|||</span> return def
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> optional_greedy <span style="color: #990000">~</span>def p <span style="color: #990000">=</span> <span style="color: #990000">(</span>p <span style="color: #990000">+-</span> check <span style="color: #990000">(</span>nay p<span style="color: #990000">))</span> <span style="color: #990000">|||</span> return def</tt></pre></div></div>
-<div class="paragraph"><p>The <code>optional_greedy</code> above is to avoid terminating a parser on an optional
-parser, which would result in two possible results systematically.</p></div>
-<div class="paragraph"><p>Indeed:</p></div>
-<div class="listingblock">
-<div class="content"><!-- Generator: GNU source-highlight 3.1.8
-by Lorenzo Bettini
-http://www.lorenzobettini.it
-http://www.gnu.org/software/src-highlite -->
-<pre><tt>optional p <span style="color: #990000">++</span> optional p</tt></pre></div></div>
-<div class="paragraph"><p>would yield 2 equivalent results.</p></div>
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> optional_greedy <span style="color: #990000">~</span>def p <span style="color: #990000">=</span>
+  p <span style="color: #990000">|||</span>
+  <span style="color: #990000">(</span>check <span style="color: #990000">(</span>nay p<span style="color: #990000">)</span> <span style="color: #990000">&gt;&gt;:</span> <span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> <span style="color: #990000">()</span> <span style="color: #990000">-&gt;</span> def<span style="color: #990000">)</span></tt></pre></div></div>
+<div class="paragraph"><p>The <code>optional_greedy</code> above is to avoid considering not consuming a matching
+token as a possible solution.</p></div>
 <div class="listingblock">
 <div class="title">Parser signature</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
@@ -1952,6 +1910,45 @@ http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">val</span></span> optional <span style="color: #990000">:</span> def<span style="color: #990000">:</span>'b <span style="color: #990000">-&gt;</span> 'b t <span style="color: #990000">-&gt;</span> 'b t
 <span style="font-weight: bold"><span style="color: #0000FF">val</span></span> optional_greedy <span style="color: #990000">:</span> def<span style="color: #990000">:</span>'b <span style="color: #990000">-&gt;</span> 'b t <span style="color: #990000">-&gt;</span> 'b t</tt></pre></div></div>
+<div class="paragraph"><p>Which behavior we&#8217;d better test:</p></div>
+<div class="listingblock">
+<div class="title">tests</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="color: #FF0000">"optional behavior"</span> <span style="color: #990000">&gt;::</span> <span style="color: #990000">(</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> _ctx <span style="color: #990000">-&gt;</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> opt_char c <span style="color: #990000">=</span> optional <span style="color: #990000">~</span>def<span style="color: #990000">:</span>'x' <span style="color: #990000">(</span>item c<span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ab <span style="color: #990000">=</span> stream_of_string <span style="color: #FF0000">"ab"</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    assert_same_results <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">Tuple2</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print<span style="color: #990000">)</span>
+      <span style="color: #990000">(</span><span style="color: #009900">None</span><span style="color: #990000">,</span> <span style="color: #990000">[(</span>'a'<span style="color: #990000">,</span> 'b'<span style="color: #990000">),</span> no_corr<span style="color: #990000">,</span> <span style="color: #990000">[]])</span>
+      <span style="color: #990000">((</span>opt_char 'a' <span style="color: #990000">++</span> item 'b'<span style="color: #990000">)</span> <span style="color: #990000">[]</span> <span style="color: #009900">None</span> no_corr ab<span style="color: #990000">)</span> <span style="color: #990000">;</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> b <span style="color: #990000">=</span> stream_of_string <span style="color: #FF0000">"b"</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    assert_same_results <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">Tuple2</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print<span style="color: #990000">)</span>
+      <span style="color: #990000">(</span><span style="color: #009900">None</span><span style="color: #990000">,</span> <span style="color: #990000">[(</span>'x'<span style="color: #990000">,</span> 'b'<span style="color: #990000">),</span> no_corr<span style="color: #990000">,</span> <span style="color: #990000">[]])</span>
+      <span style="color: #990000">((</span>opt_char 'a' <span style="color: #990000">++</span> item 'b'<span style="color: #990000">)</span> <span style="color: #990000">[]</span> <span style="color: #009900">None</span> no_corr b<span style="color: #990000">)</span> <span style="color: #990000">;</span>
+    assert_same_results <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">Tuple2</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print<span style="color: #990000">)</span>
+      <span style="color: #990000">(</span><span style="color: #009900">None</span><span style="color: #990000">,</span> <span style="color: #990000">[(</span>'x'<span style="color: #990000">,</span> 'b'<span style="color: #990000">),</span> no_corr<span style="color: #990000">,</span> <span style="color: #990000">[]</span> <span style="color: #990000">;</span>
+              <span style="color: #990000">(</span>'b'<span style="color: #990000">,</span> 'x'<span style="color: #990000">),</span> no_corr<span style="color: #990000">,</span> <span style="color: #990000">[]</span> <span style="color: #990000">;</span>
+              <span style="color: #990000">(</span>'x'<span style="color: #990000">,</span> 'x'<span style="color: #990000">),</span> no_corr<span style="color: #990000">,</span> <span style="color: #990000">[</span><span style="color: #993399">0</span><span style="color: #990000">,</span>'b'<span style="color: #990000">]])</span>
+      <span style="color: #990000">((</span>opt_char 'b' <span style="color: #990000">++</span> opt_char 'b'<span style="color: #990000">)</span> <span style="color: #990000">[]</span> <span style="color: #009900">None</span> no_corr b<span style="color: #990000">)</span>
+<span style="color: #990000">)</span> <span style="color: #990000">;</span>
+<span style="color: #FF0000">"optional_greedy really is"</span> <span style="color: #990000">&gt;::</span> <span style="color: #990000">(</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> _ctx <span style="color: #990000">-&gt;</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> opt_char c <span style="color: #990000">=</span> optional_greedy <span style="color: #990000">~</span>def<span style="color: #990000">:</span>'x' <span style="color: #990000">(</span>item c<span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ab <span style="color: #990000">=</span> stream_of_string <span style="color: #FF0000">"ab"</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    assert_same_results <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">Tuple2</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print<span style="color: #990000">)</span>
+      <span style="color: #990000">(</span><span style="color: #009900">None</span><span style="color: #990000">,</span> <span style="color: #990000">[(</span>'a'<span style="color: #990000">,</span> 'b'<span style="color: #990000">),</span> no_corr<span style="color: #990000">,</span> <span style="color: #990000">[]])</span>
+      <span style="color: #990000">((</span>opt_char 'a' <span style="color: #990000">++</span> item 'b'<span style="color: #990000">)</span> <span style="color: #990000">[]</span> <span style="color: #009900">None</span> no_corr ab<span style="color: #990000">)</span> <span style="color: #990000">;</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> b <span style="color: #990000">=</span> stream_of_string <span style="color: #FF0000">"b"</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    assert_same_results <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">Tuple2</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print<span style="color: #990000">)</span>
+      <span style="color: #990000">(</span><span style="color: #009900">None</span><span style="color: #990000">,</span> <span style="color: #990000">[(</span>'x'<span style="color: #990000">,</span> 'b'<span style="color: #990000">),</span> no_corr<span style="color: #990000">,</span> <span style="color: #990000">[]])</span>
+      <span style="color: #990000">((</span>opt_char 'a' <span style="color: #990000">++</span> item 'b'<span style="color: #990000">)</span> <span style="color: #990000">[]</span> <span style="color: #009900">None</span> no_corr b<span style="color: #990000">)</span> <span style="color: #990000">;</span>
+    assert_same_results <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">Tuple2</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>print<span style="color: #990000">)</span>
+      <span style="color: #990000">(</span><span style="color: #009900">None</span><span style="color: #990000">,</span> <span style="color: #990000">[(</span>'b'<span style="color: #990000">,</span> 'x'<span style="color: #990000">),</span> no_corr<span style="color: #990000">,</span> <span style="color: #990000">[]])</span>
+      <span style="color: #990000">((</span>opt_char 'b' <span style="color: #990000">++</span> opt_char 'b'<span style="color: #990000">)</span> <span style="color: #990000">[]</span> <span style="color: #009900">None</span> no_corr b<span style="color: #990000">)</span>
+<span style="color: #990000">)</span> <span style="color: #990000">;</span></tt></pre></div></div>
 <div class="paragraph"><p>The <code>repeat</code> combinator is a swiss-army knife for all variants of
 repetitions, requiring a parser <code>p</code> to succeed from <code>min</code> to <code>max</code> times
 consecutively, with an optional additional parser <code>sep</code> for a separator in
@@ -1965,15 +1962,14 @@ cut down on the many <code>optional (repeat p)</code> that we would have otherwi
 by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> repeat <span style="color: #990000">~</span>sep <span style="color: #990000">?(</span>min<span style="color: #990000">=</span><span style="color: #993399">0</span><span style="color: #990000">)</span> <span style="color: #990000">?</span>max <span style="color: #990000">?</span>what p m <span style="color: #990000">=</span>
-  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> m <span style="color: #990000">=</span> <span style="color: #FF0000">"repeating"</span><span style="color: #990000">::</span>m <span style="font-weight: bold"><span style="color: #0000FF">in</span></span> <span style="font-style: italic"><span style="color: #9A1900">(* add min/max ? *)</span></span>
+<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> repeat <span style="color: #990000">~</span>sep <span style="color: #990000">?(</span>min<span style="color: #990000">=</span><span style="color: #993399">0</span><span style="color: #990000">)</span> <span style="color: #990000">?</span>max <span style="color: #990000">?(</span>what<span style="color: #990000">=</span><span style="color: #FF0000">"repeating"</span><span style="color: #990000">)</span> p m <span style="color: #990000">=</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> m <span style="color: #990000">=</span> what<span style="color: #990000">::</span>m <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> <span style="font-weight: bold"><span style="color: #0000FF">rec</span></span> loop <span style="color: #990000">~</span>min <span style="color: #990000">?</span>max m e c s <span style="color: #990000">=</span>
     <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> max <span style="color: #990000">=</span> <span style="color: #009900">Some</span> <span style="color: #993399">0</span> <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="color: #990000">(</span>
       <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> min <span style="color: #990000">=</span> <span style="color: #993399">0</span> <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> return <span style="color: #990000">[]</span> m e c s
       <span style="font-style: italic"><span style="color: #9A1900">(* note: if fail was taking this token itself then we could</span></span>
 <span style="font-style: italic"><span style="color: #9A1900">         get away with repeating the full m e c s parameters everywhere *)</span></span>
       <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> ct_bind <span style="color: #990000">(</span>take s<span style="color: #990000">)</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> <span style="color: #990000">(</span>pt<span style="color: #990000">,</span> _s'<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
-        <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> m <span style="color: #990000">=</span> <span style="color: #990000">(</span><span style="color: #FF0000">"Too many "</span><span style="color: #990000">^</span> <span style="font-weight: bold"><span style="color: #000080">Option</span></span><span style="color: #990000">.</span>default <span style="color: #FF0000">"repetitions"</span> what<span style="color: #990000">)::</span>m <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
         fail m <span style="color: #990000">(</span>new_error pt m e<span style="color: #990000">)</span> c s<span style="color: #990000">)</span>
     <span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #990000">(</span>
       <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> pred_ma <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">match</span></span> max <span style="font-weight: bold"><span style="color: #0000FF">with</span></span> <span style="color: #009900">None</span> <span style="color: #990000">-&gt;</span> <span style="color: #009900">None</span>
@@ -2220,8 +2216,8 @@ http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> replace x _ <span style="color: #990000">=</span> x
 
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> anything m e c s <span style="color: #990000">=</span>
-  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> m <span style="color: #990000">=</span> <span style="color: #FF0000">"anything"</span><span style="color: #990000">::</span>m <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> anything <span style="color: #990000">?(</span>what<span style="color: #990000">=</span><span style="color: #FF0000">"anything"</span><span style="color: #990000">)</span> m e c s <span style="color: #990000">=</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> m <span style="color: #990000">=</span> what<span style="color: #990000">::</span>m <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
   ct_bind <span style="color: #990000">(</span>take s<span style="color: #990000">)</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
     <span style="color: #990000">|</span> <span style="color: #009900">EndOfStream</span><span style="color: #990000">,</span> _s' <span style="color: #990000">-&gt;</span>
       <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> m <span style="color: #990000">=</span> <span style="color: #FF0000">"unexpected end of stream"</span><span style="color: #990000">::</span>m <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
@@ -2237,7 +2233,7 @@ by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">val</span></span> replace <span style="color: #990000">:</span> token <span style="color: #990000">-&gt;</span> 'b <span style="color: #990000">-&gt;</span> token
-<span style="font-weight: bold"><span style="color: #0000FF">val</span></span> anything <span style="color: #990000">:</span> token t</tt></pre></div></div>
+<span style="font-weight: bold"><span style="color: #0000FF">val</span></span> anything <span style="color: #990000">:</span> <span style="color: #990000">?</span>what<span style="color: #990000">:</span><span style="color: #009900">string</span> <span style="color: #990000">-&gt;</span> token t</tt></pre></div></div>
 </div>
 </div>
 <div class="sect1">
@@ -2421,20 +2417,23 @@ http://www.gnu.org/software/src-highlite -->
     print_error e
     <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">List</span></span><span style="color: #990000">.</span>print <span style="color: #990000">(</span>print_possible_result print_output<span style="color: #990000">))</span> r
 
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_result print_output fmt <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
-  <span style="color: #990000">|</span> <span style="color: #009900">Ok</span> b <span style="color: #990000">-&gt;</span> print_output fmt b
-  <span style="color: #990000">|</span> <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">Approximation</span> <span style="color: #990000">(</span>b<span style="color: #990000">,</span> c<span style="color: #990000">))</span> <span style="color: #990000">-&gt;</span>
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_bad_result print_output fmt <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Approximation</span> <span style="color: #990000">(</span>b<span style="color: #990000">,</span> c<span style="color: #990000">,</span> _s<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
     <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"Approximately: %a (corrections: %a)"</span>
       print_output b
       <span style="color: #990000">(</span>print_corrections print_postok<span style="color: #990000">)</span> c
-  <span style="color: #990000">|</span> <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">Ambiguous</span> lst<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Ambiguous</span> lst <span style="color: #990000">-&gt;</span>
     <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"Ambiguous: %a"</span>
-      <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">List</span></span><span style="color: #990000">.</span>print <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> fmt <span style="color: #990000">(</span>b<span style="color: #990000">,</span> c<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
+      <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">List</span></span><span style="color: #990000">.</span>print <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> fmt <span style="color: #990000">(</span>b<span style="color: #990000">,</span> c<span style="color: #990000">,</span> _s<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
         <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"%a (corrections: %a)"</span>
           print_output b
           <span style="color: #990000">(</span>print_corrections print_postok<span style="color: #990000">)</span> c<span style="color: #990000">))</span> lst
-  <span style="color: #990000">|</span> <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">NoSolution</span> e<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
-    print_error fmt e</tt></pre></div></div>
+  <span style="color: #990000">|</span> <span style="color: #009900">NoSolution</span> e <span style="color: #990000">-&gt;</span>
+    print_error fmt e
+
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_result print_output fmt <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Ok</span> <span style="color: #990000">(</span>b<span style="color: #990000">,</span> _s<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span> print_output fmt b
+  <span style="color: #990000">|</span> <span style="color: #009900">Bad</span> e <span style="color: #990000">-&gt;</span> print_bad_result print_output fmt e</tt></pre></div></div>
 <div class="listingblock">
 <div class="title">Parser signature</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
@@ -2453,10 +2452,15 @@ http://www.gnu.org/software/src-highlite -->
   'o <span style="font-weight: bold"><span style="color: #000080">BatInnerIO</span></span><span style="color: #990000">.</span>output <span style="color: #990000">-&gt;</span>
   <span style="color: #990000">(</span>error <span style="color: #009900">option</span> <span style="color: #990000">*</span> 'b possible_result <span style="color: #009900">list</span><span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span>
 
+<span style="font-weight: bold"><span style="color: #0000FF">val</span></span> print_bad_result <span style="color: #990000">:</span>
+  <span style="color: #990000">(</span>'o <span style="font-weight: bold"><span style="color: #000080">BatInnerIO</span></span><span style="color: #990000">.</span>output <span style="color: #990000">-&gt;</span> 'b <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span><span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
+  'o <span style="font-weight: bold"><span style="color: #000080">BatInnerIO</span></span><span style="color: #990000">.</span>output <span style="color: #990000">-&gt;</span>
+  'b failure <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span>
+
 <span style="font-weight: bold"><span style="color: #0000FF">val</span></span> print_result <span style="color: #990000">:</span>
   <span style="color: #990000">(</span>'o <span style="font-weight: bold"><span style="color: #000080">BatInnerIO</span></span><span style="color: #990000">.</span>output <span style="color: #990000">-&gt;</span> 'b <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span><span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
   'o <span style="font-weight: bold"><span style="color: #000080">BatInnerIO</span></span><span style="color: #990000">.</span>output <span style="color: #990000">-&gt;</span>
-  <span style="color: #990000">(</span>'b<span style="color: #990000">,</span> 'b failure<span style="color: #990000">)</span> result <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span></tt></pre></div></div>
+  <span style="color: #990000">(</span>'b <span style="color: #990000">*</span> stream<span style="color: #990000">,</span> 'b failure<span style="color: #990000">)</span> result <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span></tt></pre></div></div>
 </div>
 </div>
 </div>
@@ -2489,7 +2493,22 @@ http://www.gnu.org/software/src-highlite -->
 <span style="font-weight: bold"><span style="color: #000080">open</span></span> <span style="color: #009900">SimpleUsual</span></tt></pre></div></div>
 <div class="sect2">
 <h3 id="_strings">9.1. Strings</h3>
-<div class="paragraph"><p>The more useful is probably to match some strings in the input stream:</p></div>
+<div class="paragraph"><p>Starting from the <code>char</code> parser that&#8217;s an <code>item</code> specialized in characters:</p></div>
+<div class="listingblock">
+<div class="title">usual parsers: chars</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> <span style="color: #009900">char</span> <span style="color: #990000">?</span>what <span style="color: #990000">?(</span>case_sensitive<span style="color: #990000">=</span><span style="font-weight: bold"><span style="color: #0000FF">true</span></span><span style="color: #990000">)</span> c <span style="color: #990000">=</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> other_case c <span style="color: #990000">=</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>is_lowercase c <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>uppercase c <span style="font-weight: bold"><span style="color: #0000FF">else</span></span>
+    <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>is_uppercase c <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>lowercase c <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> c <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> c' <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> case_sensitive <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> c <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> other_case c <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> expl <span style="color: #990000">=</span>
+    <span style="font-weight: bold"><span style="color: #000080">Option</span></span><span style="color: #990000">.</span>default_delayed <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> <span style="color: #990000">()</span> <span style="color: #990000">-&gt;</span> <span style="font-weight: bold"><span style="color: #000080">String</span></span><span style="color: #990000">.</span>of_char c<span style="color: #990000">)</span> what <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+  cond expl <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> x <span style="color: #990000">-&gt;</span> x <span style="color: #990000">=</span> c <span style="color: #990000">||</span> x <span style="color: #990000">=</span> c'<span style="color: #990000">)</span> c</tt></pre></div></div>
+<div class="paragraph"><p>&#8230;the parser matching a given string can be written:</p></div>
 <div class="listingblock">
 <div class="title">usual parsers: strings</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
@@ -2498,11 +2517,11 @@ http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #000080">open</span></span> <span style="color: #009900">ParsersMisc</span>
 
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> <span style="color: #009900">string</span> s <span style="color: #990000">=</span>
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> <span style="color: #009900">string</span> <span style="color: #990000">?</span>case_sensitive s <span style="color: #990000">=</span>
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> <span style="font-weight: bold"><span style="color: #0000FF">rec</span></span> loop i <span style="color: #990000">=</span>
     <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> i <span style="color: #990000">&gt;=</span> <span style="font-weight: bold"><span style="color: #000080">String</span></span><span style="color: #990000">.</span>length s <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> return <span style="color: #990000">()</span>
     <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #990000">(</span>
-      <span style="color: #990000">(</span>item <span style="color: #990000">~</span>what<span style="color: #990000">:</span>s s<span style="color: #990000">.[</span>i<span style="color: #990000">])</span> <span style="color: #990000">--</span> <span style="color: #990000">(</span>loop <span style="color: #990000">(</span>i<span style="color: #990000">+</span><span style="color: #993399">1</span><span style="color: #990000">))</span>
+      <span style="color: #990000">(</span><span style="color: #009900">char</span> <span style="color: #990000">~</span>what<span style="color: #990000">:</span>s <span style="color: #990000">?</span>case_sensitive s<span style="color: #990000">.[</span>i<span style="color: #990000">])</span> <span style="color: #990000">--</span> <span style="color: #990000">(</span>loop <span style="color: #990000">(</span>i<span style="color: #990000">+</span><span style="color: #993399">1</span><span style="color: #990000">))</span>
     <span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
   loop <span style="color: #993399">0</span></tt></pre></div></div>
 </div>
@@ -2982,14 +3001,11 @@ associativity despite using parser combinators.</p></div>
 <div class="sect1">
 <h2 id="_configurations">10. Configurations</h2>
 <div class="sectionbody">
-<div class="paragraph"><p>Here are provided some <code>Parsers.CONFIG</code> for implementing properly resumable
-parsers (unlike the <code>SimpleConfig</code> that was just good for unit tests) and a
-few simple position types ɣ.</p></div>
+<div class="paragraph"><p>Here are provided some <code>Parsers.CONFIG</code> implementing more complex parsers
+than the <code>SimpleConfig</code> (that was tailored for unit tests) and a few simple
+position types ɣ.</p></div>
 <div class="sect2">
-<h3 id="_lwt">10.1. LWT</h3>
-<div class="paragraph"><p><code>LWT</code> already provides a <code>Lwt_stream.t</code> type for streams, that you would expect
-to be persistent given the threading context. But actually those are
-destructive, therefore useless for us.</p></div>
+<h3 id="_turning_destructive_reads_into_persistent_streams">10.1. Turning destructive reads into persistent streams</h3>
 <div class="paragraph"><p>Let&#8217;s define a proper persistent stream type adapted to networking.</p></div>
 <div class="paragraph"><p>The stream should take its tokens from blocs chained together. Reception of a
 new block should append it at the end of the list (the pointer to the <code>next</code>
@@ -3001,9 +3017,12 @@ provide streams of token. We will therefore ask for another configuration
 module providing the actual token container (maybe a <code>Buffer.t</code>, a <code>bytes</code>, an
 array or any indexed container) with a <code>nth</code> function returning the token at
 some designated index. This configuration module must also provide the function
-returning the (promise of a) next block (and the range we ought to parse).</p></div>
+returning the (promise of a) next block (and the range we ought to parse). To
+limit functorization in end user code we will assume that this function also
+takes some additional parameter representing the channel that is being read
+(such as a file descriptor).</p></div>
 <div class="listingblock">
-<div class="title">ParsersLwtConfig.ml: chained buffers of tokens</div>
+<div class="title">ParsersConfig.ml: turn a destructive stream into a persistent one</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
 by Lorenzo Bettini
 http://www.lorenzobettini.it
@@ -3012,21 +3031,19 @@ http://www.gnu.org/software/src-highlite -->
 <span style="font-weight: bold"><span style="color: #000080">open</span></span> <span style="color: #009900">ParsersMisc</span>
 
 <span style="font-weight: bold"><span style="color: #0000FF">module</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> <span style="color: #009900">CONFIG</span> <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">sig</span></span>
+  <span style="font-style: italic"><span style="color: #9A1900">(* ...threading types... *)</span></span>
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> token
   <span style="font-weight: bold"><span style="color: #0000FF">val</span></span> print_token <span style="color: #990000">:</span> 'o <span style="font-weight: bold"><span style="color: #000080">BatInnerIO</span></span><span style="color: #990000">.</span>output <span style="color: #990000">-&gt;</span> token <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span>
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> buf
   <span style="font-weight: bold"><span style="color: #0000FF">val</span></span> nth <span style="color: #990000">:</span> buf <span style="color: #990000">-&gt;</span> <span style="color: #009900">int</span> <span style="color: #990000">-&gt;</span> token
-  <span style="font-weight: bold"><span style="color: #0000FF">val</span></span> read_buf <span style="color: #990000">:</span> <span style="color: #009900">unit</span> <span style="color: #990000">-&gt;</span> <span style="color: #990000">(</span>buf <span style="color: #990000">*</span> <span style="color: #009900">int</span> <span style="color: #990000">*</span> <span style="color: #009900">int</span><span style="color: #990000">)</span> <span style="color: #009900">option</span> <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>t
+  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> channel
+  <span style="font-weight: bold"><span style="color: #0000FF">val</span></span> read_buf <span style="color: #990000">:</span> channel <span style="color: #990000">-&gt;</span> <span style="color: #990000">(</span>buf <span style="color: #990000">*</span> <span style="color: #009900">int</span> <span style="color: #990000">*</span> <span style="color: #009900">int</span><span style="color: #990000">)</span> <span style="color: #009900">option</span> ct
 <span style="font-weight: bold"><span style="color: #0000FF">end</span></span>
 
-<span style="font-weight: bold"><span style="color: #0000FF">module</span></span> <span style="color: #009900">Make</span> <span style="color: #990000">(</span><span style="color: #009900">TokConf</span> <span style="color: #990000">:</span> <span style="color: #009900">CONFIG</span><span style="color: #990000">)</span> <span style="color: #990000">:</span>
-  <span style="font-weight: bold"><span style="color: #000080">Parsers</span></span><span style="color: #990000">.</span><span style="color: #009900">CONFIG</span> <span style="font-weight: bold"><span style="color: #0000FF">with</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> token <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">TokConf</span></span><span style="color: #990000">.</span>token
-                  <span style="font-weight: bold"><span style="color: #0000FF">and</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> position <span style="color: #990000">=</span> <span style="color: #009900">unit</span> <span style="color: #990000">=</span>
+<span style="font-weight: bold"><span style="color: #0000FF">module</span></span> <span style="color: #009900">BlockList</span> <span style="color: #990000">(</span><span style="color: #009900">Conf</span> <span style="color: #990000">:</span> <span style="color: #009900">CONFIG</span><span style="color: #990000">)</span> <span style="color: #990000">=</span>
 <span style="font-weight: bold"><span style="color: #0000FF">struct</span></span>
-  <span style="font-weight: bold"><span style="color: #000080">include</span></span> <span style="color: #009900">TokConf</span>
-  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> position <span style="color: #990000">=</span> <span style="color: #009900">unit</span>
-  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> cmp_position <span style="color: #990000">()</span> <span style="color: #990000">()</span> <span style="color: #990000">=</span> <span style="color: #993399">0</span>
-  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_position fmt <span style="color: #990000">()</span> <span style="color: #990000">=</span> ignore fmt
+  <span style="font-weight: bold"><span style="color: #000080">include</span></span> <span style="color: #009900">Conf</span>
+
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> block <span style="color: #990000">=</span>
     <span style="color: #FF0000">{</span> buffer <span style="color: #990000">:</span> buf <span style="color: #990000">;</span>
       first <span style="color: #990000">:</span> <span style="color: #009900">int</span> <span style="color: #990000">;</span> <span style="font-style: italic"><span style="color: #9A1900">(* <img alt="1" src="data:image/png;base64,
@@ -3039,9 +3056,8 @@ ZjloaiHtAAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30AAAAASUVORK5CYII=" /> *)</span></span
       last <span style="color: #990000">:</span> <span style="color: #009900">int</span> <span style="color: #990000">;</span>
       <span style="font-weight: bold"><span style="color: #0000FF">mutable</span></span> next_block <span style="color: #990000">:</span> block <span style="color: #009900">option</span> <span style="color: #FF0000">}</span>
 
-  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> non_empty_stream <span style="color: #990000">=</span>
-    <span style="color: #FF0000">{</span> block <span style="color: #990000">:</span> block <span style="color: #990000">;</span>
-      next <span style="color: #990000">:</span> <span style="color: #009900">int</span> <span style="font-style: italic"><span style="color: #9A1900">(* <img alt="2" src="data:image/png;base64,
+  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> stream <span style="color: #990000">=</span> <span style="color: #009900">Unstarted</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> <span style="color: #FF0000">{</span> channel <span style="color: #990000">:</span> channel <span style="color: #990000">;</span> <span style="font-weight: bold"><span style="color: #0000FF">mutable</span></span> first_block <span style="color: #990000">:</span> block <span style="color: #009900">option</span> <span style="color: #FF0000">}</span>
+              <span style="color: #990000">|</span> <span style="color: #009900">Started</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> <span style="color: #FF0000">{</span> channel <span style="color: #990000">:</span> channel <span style="color: #990000">;</span> block <span style="color: #990000">:</span> block <span style="color: #990000">;</span> next <span style="color: #990000">:</span> <span style="color: #009900">int</span> <span style="font-style: italic"><span style="color: #9A1900">(* <img alt="2" src="data:image/png;base64,
 iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAAAAABzHgM7AAAAAmJLR0QAAKqNIzIAAAB7SURBVHja
 HY6hFcMwDEQ/NDQsNSwU9Apdo7Cw0CsIBoZmhKzQEQJLDQsFVclHpHu693W429Zr7bu541Pg3kCm
 Y0K75u9TEUPhuGgWU4mQDvieEaSQEnsT6zKPeZY0EUNtrHMCXvYUuSUg0PsMjUSvpysUT6OOSil9
@@ -3049,23 +3065,15 @@ izp/VNk1YJ8vf6MAAABDdEVYdFNvZnR3YXJlAEAoIylJbWFnZU1hZ2ljayA0LjIuOCA5OS8wOC8w
 MSBjcmlzdHlAbXlzdGljLmVzLmR1cG9udC5jb22RuiG4AAAAKnRFWHRTaWduYXR1cmUAODBlYWU1
 MjljOTRhN2Y0N2RlY2NmYWRhMjhhY2I5ZGblb7ENAAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30A
 AAAASUVORK5CYII=" /> *)</span></span> <span style="color: #FF0000">}</span>
+              <span style="color: #990000">|</span> <span style="color: #009900">Finished</span>
 
-  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> stream <span style="color: #990000">=</span>
-    non_empty_stream <span style="color: #009900">option</span> <span style="font-style: italic"><span style="color: #9A1900">(* <img alt="3" src="data:image/png;base64,
-iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAAAAABzHgM7AAAAAmJLR0QAAKqNIzIAAAB4SURBVHja
-JU6rFcNADBM09BqBhl6ltDCwKxQeDOwKB7tGYGCoYaChK6cmlt7TD1W5uap/sgoVBnEXWBTSoOdx
-7gpLDOAVorWC0ABdcBPqwZtx8Muf+DPXJpQ96Nu/LSMYl/n17oCOnplTOrpiwW3sUs4ZJmob5/wA
-Ubg1Y/zrjUwAAABDdEVYdFNvZnR3YXJlAEAoIylJbWFnZU1hZ2ljayA0LjIuOCA5OS8wOC8wMSBj
-cmlzdHlAbXlzdGljLmVzLmR1cG9udC5jb22RuiG4AAAAKnRFWHRTaWduYXR1cmUAODBiYmRhMjcy
-NmRkYWNlOGFiOGEwMWY1OWRlMmViZGII/Q51AAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30AAAAA
-SUVORK5CYII=" /> *)</span></span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> make_stream channel <span style="color: #990000">=</span>
+    <span style="color: #009900">Unstarted</span> <span style="color: #FF0000">{</span> channel <span style="color: #990000">;</span> first_block <span style="color: #990000">=</span> <span style="color: #009900">None</span> <span style="color: #FF0000">}</span>
 
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_stream fmt <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
-    <span style="color: #990000">|</span> <span style="color: #009900">None</span> <span style="color: #990000">-&gt;</span> <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"EOF"</span>
-    <span style="color: #990000">|</span> <span style="color: #009900">Some</span> _s <span style="color: #990000">-&gt;</span> <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"TODO"</span>
-
-  <span style="font-style: italic"><span style="color: #9A1900">(* ...other LwtConfig definitions... *)</span></span>
-<span style="font-weight: bold"><span style="color: #0000FF">end</span></span></tt></pre></div></div>
+    <span style="color: #990000">|</span> <span style="color: #009900">Unstarted</span> _ <span style="color: #990000">-&gt;</span> <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"Unstarted"</span>
+    <span style="color: #990000">|</span> <span style="color: #009900">Started</span> _  <span style="color: #990000">-&gt;</span> <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"TODO"</span>
+    <span style="color: #990000">|</span> <span style="color: #009900">Finished</span>  <span style="color: #990000">-&gt;</span> <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"EOF"</span></tt></pre></div></div>
 <div class="colist arabic"><table>
 <tr><td><img alt="1" src="data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAAAAABzHgM7AAAAAmJLR0QAAKqNIzIAAABjSURBVHja
 VY6xDcAwCAS/pPQaLim9QmajdOk2I2SNrMEIlARIoigU8Cek/4e7zdHaWOYOVwaoA6wOCw05Y7FB
@@ -3085,15 +3093,6 @@ MjljOTRhN2Y0N2RlY2NmYWRhMjhhY2I5ZGblb7ENAAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30A
 AAAASUVORK5CYII=" /></td><td>
 This is the stream pointer.
 </td></tr>
-<tr><td><img alt="3" src="data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAAAAABzHgM7AAAAAmJLR0QAAKqNIzIAAAB4SURBVHja
-JU6rFcNADBM09BqBhl6ltDCwKxQeDOwKB7tGYGCoYaChK6cmlt7TD1W5uap/sgoVBnEXWBTSoOdx
-7gpLDOAVorWC0ABdcBPqwZtx8Muf+DPXJpQ96Nu/LSMYl/n17oCOnplTOrpiwW3sUs4ZJmob5/wA
-Ubg1Y/zrjUwAAABDdEVYdFNvZnR3YXJlAEAoIylJbWFnZU1hZ2ljayA0LjIuOCA5OS8wOC8wMSBj
-cmlzdHlAbXlzdGljLmVzLmR1cG9udC5jb22RuiG4AAAAKnRFWHRTaWduYXR1cmUAODBiYmRhMjcy
-NmRkYWNlOGFiOGEwMWY1OWRlMmViZGII/Q51AAAADnRFWHRQYWdlADEyeDEyKzArMIRtu30AAAAA
-SUVORK5CYII=" /></td><td>
-This option type is for being able to represent the empty stream.
-</td></tr>
 </table></div>
 <div class="paragraph"><p>Notice that the chain of blocks is not persistent (because of the mutable
 next pointer) but the stream itself is: a stream can be copied and reused
@@ -3101,24 +3100,24 @@ later regardless of what other copies are doing.</p></div>
 <div class="paragraph"><p>So the stream reader can either read the next available token (wrapped into a
 <code>ct</code>) or wait until the next buffer to be ready:</p></div>
 <div class="listingblock">
-<div class="title">other LwtConfig definitions: take next token</div>
+<div class="title">ParsersConfig.ml: The take function</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
 by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> <span style="font-weight: bold"><span style="color: #0000FF">rec</span></span> take <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
-  <span style="color: #990000">|</span> <span style="color: #009900">None</span> <span style="font-weight: bold"><span style="color: #0000FF">as</span></span> s <span style="color: #990000">-&gt;</span>
-    <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>return <span style="color: #990000">(</span><span style="color: #009900">EndOfStream</span><span style="color: #990000">,</span> s<span style="color: #990000">)</span>
-  <span style="color: #990000">|</span> <span style="color: #009900">Some</span> s <span style="font-weight: bold"><span style="color: #0000FF">as</span></span> some_s <span style="color: #990000">-&gt;</span>
-    <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> s<span style="color: #990000">.</span>next <span style="color: #990000">&lt;</span> s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>last <span style="font-weight: bold"><span style="color: #0000FF">then</span></span>
-      <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>return <span style="color: #990000">(</span>
-        <span style="color: #009900">Item</span> <span style="color: #990000">((),</span> nth s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>buffer s<span style="color: #990000">.</span>next<span style="color: #990000">),</span>
-        <span style="color: #009900">Some</span> <span style="color: #FF0000">{</span> s <span style="font-weight: bold"><span style="color: #0000FF">with</span></span> next <span style="color: #990000">=</span> s<span style="color: #990000">.</span>next<span style="color: #990000">+</span><span style="color: #993399">1</span> <span style="color: #FF0000">}</span><span style="color: #990000">)</span>
-    <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #990000">(</span>
-      <span style="font-weight: bold"><span style="color: #0000FF">match</span></span> s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>next_block <span style="font-weight: bold"><span style="color: #0000FF">with</span></span>
-      <span style="color: #990000">|</span> <span style="color: #009900">Some</span> block <span style="color: #990000">-&gt;</span>
-        take <span style="color: #990000">(</span><span style="color: #009900">Some</span> <span style="color: #FF0000">{</span> block <span style="color: #990000">;</span> next <span style="color: #990000">=</span> block<span style="color: #990000">.</span>first <span style="color: #FF0000">}</span><span style="color: #990000">)</span>
-      <span style="color: #990000">|</span> <span style="color: #009900">None</span> <span style="color: #990000">-&gt;</span></tt></pre></div></div>
+<pre><tt>  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> <span style="font-weight: bold"><span style="color: #0000FF">rec</span></span> take <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
+    <span style="color: #990000">|</span> <span style="color: #009900">Finished</span> <span style="font-weight: bold"><span style="color: #0000FF">as</span></span> s <span style="color: #990000">-&gt;</span>
+      ct_return <span style="color: #990000">(</span><span style="color: #009900">EndOfStream</span><span style="color: #990000">,</span> s<span style="color: #990000">)</span>
+    <span style="color: #990000">|</span> <span style="color: #009900">Started</span> s <span style="font-weight: bold"><span style="color: #0000FF">as</span></span> stream <span style="color: #990000">-&gt;</span>
+      <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> s<span style="color: #990000">.</span>next <span style="color: #990000">&lt;</span> s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>last <span style="font-weight: bold"><span style="color: #0000FF">then</span></span>
+        ct_return <span style="color: #990000">(</span>
+          <span style="color: #009900">Item</span> <span style="color: #990000">((),</span> nth s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>buffer s<span style="color: #990000">.</span>next<span style="color: #990000">),</span>
+          <span style="color: #009900">Started</span> <span style="color: #FF0000">{</span> s <span style="font-weight: bold"><span style="color: #0000FF">with</span></span> next <span style="color: #990000">=</span> s<span style="color: #990000">.</span>next<span style="color: #990000">+</span><span style="color: #993399">1</span> <span style="color: #FF0000">}</span><span style="color: #990000">)</span>
+      <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #990000">(</span>
+        <span style="font-weight: bold"><span style="color: #0000FF">match</span></span> s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>next_block <span style="font-weight: bold"><span style="color: #0000FF">with</span></span>
+        <span style="color: #990000">|</span> <span style="color: #009900">Some</span> block <span style="color: #990000">-&gt;</span>
+          take <span style="color: #990000">(</span><span style="color: #009900">Started</span> <span style="color: #FF0000">{</span> s <span style="font-weight: bold"><span style="color: #0000FF">with</span></span> block <span style="color: #990000">=</span> block <span style="color: #990000">;</span> next <span style="color: #990000">=</span> block<span style="color: #990000">.</span>first <span style="color: #FF0000">}</span><span style="color: #990000">)</span>
+        <span style="color: #990000">|</span> <span style="color: #009900">None</span> <span style="color: #990000">-&gt;</span></tt></pre></div></div>
 <div class="paragraph"><p>This is the problematic case. We have to request the next block, and add it to
 the chain of blocks so that other streams lagging behind us could also parse
 it in the future. Notice that given <code>read_buf</code> is a blocking operation other
@@ -3129,68 +3128,157 @@ have we spawned a new thread, and all other existing streams are in this
 thread own stack. This is not to say that one can not run two parsers
 simultaneously but then, of course, they will have to parse different streams.
 In other words, nothing else in the running program must be calling our
-<code>read_buf</code> or we will miss some blocks. Hopefully that&#8217;s obvious.</p></div>
+<code>read_buf</code> or we will miss some blocks. Hopefully that&#8217;s obvious enough that
+nobody will try to do that.</p></div>
 <div class="paragraph"><p>So let&#8217;s call <code>read_buf</code> and wait, confident that nothing bad will happen:</p></div>
 <div class="listingblock">
-<div class="title">other LwtConfig definitions: take next token from next block:</div>
+<div class="title">ParsersConfig.ml: take next token from next block</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
 by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
-<pre><tt>        <span style="font-weight: bold"><span style="color: #0000FF">match</span></span><span style="color: #990000">%</span>lwt read_buf <span style="color: #990000">()</span> <span style="font-weight: bold"><span style="color: #0000FF">with</span></span>
-        <span style="color: #990000">|</span> <span style="color: #009900">None</span> <span style="color: #990000">-&gt;</span>
-          <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>return <span style="color: #990000">(</span><span style="color: #009900">EndOfStream</span><span style="color: #990000">,</span> some_s<span style="color: #990000">)</span>
-        <span style="color: #990000">|</span> <span style="color: #009900">Some</span> <span style="color: #990000">(</span>buffer<span style="color: #990000">,</span> first<span style="color: #990000">,</span> last<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
-          <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> next_block <span style="color: #990000">=</span> <span style="color: #FF0000">{</span> buffer <span style="color: #990000">;</span> first <span style="color: #990000">;</span> last <span style="color: #990000">;</span>
-                             next_block <span style="color: #990000">=</span> <span style="color: #009900">None</span> <span style="color: #FF0000">}</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span></tt></pre></div></div>
+<pre><tt>          ct_bind <span style="color: #990000">(</span>read_buf s<span style="color: #990000">.</span>channel<span style="color: #990000">)</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
+          <span style="color: #990000">|</span> <span style="color: #009900">None</span> <span style="color: #990000">-&gt;</span>
+            ct_return <span style="color: #990000">(</span><span style="color: #009900">EndOfStream</span><span style="color: #990000">,</span> <span style="color: #009900">Finished</span><span style="color: #990000">)</span>
+          <span style="color: #990000">|</span> <span style="color: #009900">Some</span> <span style="color: #990000">(</span>buffer<span style="color: #990000">,</span> first<span style="color: #990000">,</span> last<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
+            <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> next_block <span style="color: #990000">=</span> <span style="color: #FF0000">{</span> buffer <span style="color: #990000">;</span> first <span style="color: #990000">;</span> last <span style="color: #990000">;</span>
+                               next_block <span style="color: #990000">=</span> <span style="color: #009900">None</span> <span style="color: #FF0000">}</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span></tt></pre></div></div>
 <div class="paragraph"><p>Of course it costs nothing to check the above assumption:</p></div>
 <div class="listingblock">
-<div class="title">other LwtConfig definitions: enqueue this block for laggers and retry</div>
+<div class="title">ParsersConfig.ml: enqueue this block for laggers and retry</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
 by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
-<pre><tt>        <span style="font-weight: bold"><span style="color: #0000FF">assert</span></span> <span style="color: #990000">(</span>s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>next_block <span style="color: #990000">=</span> <span style="color: #009900">None</span><span style="color: #990000">)</span> <span style="color: #990000">;</span>
-        s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>next_block <span style="color: #990000">&lt;-</span> <span style="color: #009900">Some</span> next_block <span style="color: #990000">;</span>
-        take some_s
-    <span style="color: #990000">)</span></tt></pre></div></div>
-<div class="paragraph"><p>A few more trivial definitions are needed to fulfill <code>Parsers.CONFIG</code>:</p></div>
+<pre><tt>            <span style="font-weight: bold"><span style="color: #0000FF">assert</span></span> <span style="color: #990000">(</span>s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>next_block <span style="color: #990000">=</span> <span style="color: #009900">None</span><span style="color: #990000">)</span> <span style="color: #990000">;</span>
+            s<span style="color: #990000">.</span>block<span style="color: #990000">.</span>next_block <span style="color: #990000">&lt;-</span> <span style="color: #009900">Some</span> next_block <span style="color: #990000">;</span>
+            take stream
+        <span style="color: #990000">))</span></tt></pre></div></div>
+<div class="paragraph"><p>The case where the stream is not started yet is interesting: this stream has to
+be sharable as well, but we must have only one instance of the pointer to the
+next block (so that when one instance triggers the actual read all other
+instances can find the data) and we do not want to keep a pointer to the head
+of the list forever (we want the list to be garbage collected). So we merely
+have the mutable address of the optional first block.</p></div>
 <div class="listingblock">
-<div class="title">other LwtConfig definitions: missing bits</div>
+<div class="title">ParsersConfig.ml: take from the head of the stream</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
 by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">type</span></span> 'a ct <span style="color: #990000">=</span> 'a <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>t
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_bind <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>bind
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_return <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>return
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> empty_stream <span style="color: #990000">=</span> <span style="color: #009900">None</span></tt></pre></div></div>
-<div class="paragraph"><p>Example implementation that reads bytes from a file:</p></div>
+<pre><tt>    <span style="color: #990000">|</span> <span style="color: #009900">Unstarted</span> u <span style="font-weight: bold"><span style="color: #0000FF">as</span></span> stream <span style="color: #990000">-&gt;</span>
+      <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">match</span></span> u<span style="color: #990000">.</span>first_block <span style="font-weight: bold"><span style="color: #0000FF">with</span></span>
+      <span style="color: #990000">|</span> <span style="color: #009900">None</span> <span style="color: #990000">-&gt;</span>
+        ct_bind <span style="color: #990000">(</span>read_buf u<span style="color: #990000">.</span>channel<span style="color: #990000">)</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
+        <span style="color: #990000">|</span> <span style="color: #009900">None</span> <span style="color: #990000">-&gt;</span>
+          ct_return <span style="color: #990000">(</span><span style="color: #009900">EndOfStream</span><span style="color: #990000">,</span> <span style="color: #009900">Finished</span><span style="color: #990000">)</span>
+        <span style="color: #990000">|</span> <span style="color: #009900">Some</span> <span style="color: #990000">(</span>buffer<span style="color: #990000">,</span> first<span style="color: #990000">,</span> last<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
+          <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> next_block <span style="color: #990000">=</span> <span style="color: #FF0000">{</span> buffer <span style="color: #990000">;</span> first <span style="color: #990000">;</span> last <span style="color: #990000">;</span>
+                             next_block <span style="color: #990000">=</span> <span style="color: #009900">None</span> <span style="color: #FF0000">}</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+          <span style="font-weight: bold"><span style="color: #0000FF">assert</span></span> <span style="color: #990000">(</span>u<span style="color: #990000">.</span>first_block <span style="color: #990000">=</span> <span style="color: #009900">None</span><span style="color: #990000">)</span> <span style="color: #990000">;</span>
+          u<span style="color: #990000">.</span>first_block <span style="color: #990000">&lt;-</span> <span style="color: #009900">Some</span> next_block <span style="color: #990000">;</span>
+          take stream<span style="color: #990000">)</span>
+      <span style="color: #990000">|</span> <span style="color: #009900">Some</span> block <span style="color: #990000">-&gt;</span>
+        take <span style="color: #990000">(</span><span style="color: #009900">Started</span> <span style="color: #FF0000">{</span> channel <span style="color: #990000">=</span> u<span style="color: #990000">.</span>channel <span style="color: #990000">;</span> block <span style="color: #990000">;</span> next <span style="color: #990000">=</span> block<span style="color: #990000">.</span>first <span style="color: #FF0000">}</span><span style="color: #990000">))</span></tt></pre></div></div>
+<div class="paragraph"><p>We can now add a few more definitions in there so that this BlockList look more
+like a Parsers.CONFIG:</p></div>
 <div class="listingblock">
-<div class="title">ParsersLwtConfig.ml: reading bytes from a file</div>
+<div class="title">ParsersConfig.ml: turning it into an actual Parsers CONFIG</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
 by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">module</span></span> <span style="color: #009900">FileReader</span> <span style="color: #990000">:</span> <span style="color: #009900">CONFIG</span> <span style="color: #990000">=</span>
+<pre><tt>  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> position <span style="color: #990000">=</span> <span style="color: #009900">unit</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> cmp_position <span style="color: #990000">()</span> <span style="color: #990000">()</span> <span style="color: #990000">=</span> <span style="color: #993399">0</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_position fmt <span style="color: #990000">()</span> <span style="color: #990000">=</span>
+    <span style="font-weight: bold"><span style="color: #000080">String</span></span><span style="color: #990000">.</span>print fmt <span style="color: #FF0000">"some location"</span>
+<span style="font-weight: bold"><span style="color: #0000FF">end</span></span></tt></pre></div></div>
+</div>
+<div class="sect2">
+<h3 id="_lwt">10.2. LWT</h3>
+<div class="paragraph"><p><code>LWT</code> already provides a <code>Lwt_stream.t</code> type for streams, that you would expect
+to be persistent given the threading context. But actually those are
+destructive, therefore useless for us. Let&#8217;s use instead the list of blocks
+constructed above. HEre is an exemple implementation that reads bytes from a
+file:</p></div>
+<div class="listingblock">
+<div class="title">ParsersLwtConfig.ml: file parsers for LWT</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #000080">open</span></span> <span style="color: #009900">Batteries</span>
+
+<span style="font-weight: bold"><span style="color: #0000FF">module</span></span> <span style="color: #009900">FileReader</span> <span style="color: #990000">:</span>
+  <span style="font-weight: bold"><span style="color: #000080">ParsersConfig</span></span><span style="color: #990000">.</span><span style="color: #009900">CONFIG</span> <span style="font-weight: bold"><span style="color: #0000FF">with</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> token <span style="color: #990000">=</span> <span style="color: #009900">char</span>
+                        <span style="font-weight: bold"><span style="color: #0000FF">and</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> 'a ct <span style="color: #990000">=</span> 'a <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>t
+                        <span style="font-weight: bold"><span style="color: #0000FF">and</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> channel <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Lwt_unix</span></span><span style="color: #990000">.</span>file_descr <span style="color: #990000">=</span>
 <span style="font-weight: bold"><span style="color: #0000FF">struct</span></span>
+  <span style="font-style: italic"><span style="color: #9A1900">(* Lwt bindings: *)</span></span>
+  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> 'a ct <span style="color: #990000">=</span> 'a <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>t
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_bind <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>bind
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_return <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>return
+
+  <span style="font-style: italic"><span style="color: #9A1900">(* Reading characters: *)</span></span>
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> token <span style="color: #990000">=</span> <span style="color: #009900">char</span>
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_token fmt c <span style="color: #990000">=</span>
     <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"%C"</span> c
 
+  <span style="font-style: italic"><span style="color: #9A1900">(* From a file: *)</span></span>
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> buf <span style="color: #990000">=</span> bytes
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> nth <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Bytes</span></span><span style="color: #990000">.</span>get
-  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> read_buf <span style="color: #990000">()</span> <span style="color: #990000">=</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> channel <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Lwt_unix</span></span><span style="color: #990000">.</span>file_descr
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> read_buf channel <span style="color: #990000">=</span>
     <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> max_len <span style="color: #990000">=</span> <span style="color: #993399">1024</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
     <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> buf <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Bytes</span></span><span style="color: #990000">.</span>create max_len <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
-    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span><span style="color: #990000">%</span>lwt r <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Lwt_unix</span></span><span style="color: #990000">.(</span>read stdin buf <span style="color: #993399">0</span> max_len<span style="color: #990000">)</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span><span style="color: #990000">%</span>lwt r <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Lwt_unix</span></span><span style="color: #990000">.</span>read channel buf <span style="color: #993399">0</span> max_len <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
     <span style="font-weight: bold"><span style="color: #000080">Lwt</span></span><span style="color: #990000">.</span>return <span style="color: #990000">(</span>
       <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> r <span style="color: #990000">=</span> <span style="color: #993399">0</span> <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="color: #009900">None</span>
       <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #009900">Some</span> <span style="color: #990000">(</span>buf<span style="color: #990000">,</span> <span style="color: #993399">0</span><span style="color: #990000">,</span> r<span style="color: #990000">))</span>
 <span style="font-weight: bold"><span style="color: #0000FF">end</span></span></tt></pre></div></div>
 </div>
 <div class="sect2">
-<h3 id="_positioning_in_a_stream">10.2. Positioning in a stream</h3>
+<h3 id="_blocking_unix_config">10.3. Blocking Unix CONFIG</h3>
+<div class="paragraph"><p>This configuration assumes that it is OK to block when reading tokens (assuming
+the parser runs in its own POSIX thread for instance). It&#8217;s given as a
+configuration a mere <code>in_channel</code> from which bytes (tokens) will be read.</p></div>
+<div class="listingblock">
+<div class="title">ParsersConfig.ml: Reading a file using normal blocking Unix read</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #000080">open</span></span> <span style="color: #009900">Batteries</span>
+
+<span style="font-weight: bold"><span style="color: #0000FF">module</span></span> <span style="color: #009900">FileReader</span> <span style="color: #990000">:</span>
+  <span style="color: #009900">CONFIG</span> <span style="font-weight: bold"><span style="color: #0000FF">with</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> token <span style="color: #990000">=</span> <span style="color: #009900">char</span>
+          <span style="font-weight: bold"><span style="color: #0000FF">and</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> 'a ct <span style="color: #990000">=</span> 'a
+          <span style="font-weight: bold"><span style="color: #0000FF">and</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> channel <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Unix</span></span><span style="color: #990000">.</span>file_descr <span style="color: #990000">=</span>
+<span style="font-weight: bold"><span style="color: #0000FF">struct</span></span>
+  <span style="font-style: italic"><span style="color: #9A1900">(* No continuation passing trickery needed: *)</span></span>
+  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> 'a ct <span style="color: #990000">=</span> 'a
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_bind x f <span style="color: #990000">=</span> f x
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_return x <span style="color: #990000">=</span> x
+
+  <span style="font-style: italic"><span style="color: #9A1900">(* Reading characters: *)</span></span>
+  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> token <span style="color: #990000">=</span> <span style="color: #009900">char</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_token fmt c <span style="color: #990000">=</span>
+    <span style="font-weight: bold"><span style="color: #000080">Printf</span></span><span style="color: #990000">.</span>fprintf fmt <span style="color: #FF0000">"%C"</span> c
+
+  <span style="font-style: italic"><span style="color: #9A1900">(* From a file: *)</span></span>
+  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> buf <span style="color: #990000">=</span> bytes
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> nth <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Bytes</span></span><span style="color: #990000">.</span>get
+  <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> channel <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Unix</span></span><span style="color: #990000">.</span>file_descr
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> read_buf channel <span style="color: #990000">=</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> max_len <span style="color: #990000">=</span> <span style="color: #993399">1024</span> <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> buf <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Bytes</span></span><span style="color: #990000">.</span>create max_len <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> r <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Unix</span></span><span style="color: #990000">.</span>read channel buf <span style="color: #993399">0</span> max_len <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+    <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> r <span style="color: #990000">=</span> <span style="color: #993399">0</span> <span style="font-weight: bold"><span style="color: #0000FF">then</span></span> <span style="color: #009900">None</span>
+    <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="color: #009900">Some</span> <span style="color: #990000">(</span>buf<span style="color: #990000">,</span> <span style="color: #993399">0</span><span style="color: #990000">,</span> r<span style="color: #990000">)</span>
+<span style="font-weight: bold"><span style="color: #0000FF">end</span></span></tt></pre></div></div>
+</div>
+<div class="sect2">
+<h3 id="_positioning_in_a_stream">10.4. Positioning in a stream</h3>
 <div class="paragraph"><p>The <code>take</code> function from <code>Parsers.CONFIG</code> must return the position along with
 the token. Of course there is no need to actually store a position with each
 token. Instead, what is needed is a function that change a function returning
@@ -3221,7 +3309,6 @@ http://www.gnu.org/software/src-highlite -->
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_bind <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Conf</span></span><span style="color: #990000">.</span>ct_bind
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_return <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Conf</span></span><span style="color: #990000">.</span>ct_return
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> stream <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Conf</span></span><span style="color: #990000">.</span>stream <span style="color: #990000">*</span> <span style="color: #009900">int</span>
-  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> empty_stream <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Conf</span></span><span style="color: #990000">.</span>empty_stream<span style="color: #990000">,</span> <span style="color: #993399">0</span>
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> position <span style="color: #990000">=</span> <span style="color: #009900">int</span>
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> cmp_position <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Int</span></span><span style="color: #990000">.</span>compare
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> print_position fmt ofs <span style="color: #990000">=</span>
@@ -3256,8 +3343,6 @@ http://www.gnu.org/software/src-highlite -->
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_bind <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Conf</span></span><span style="color: #990000">.</span>ct_bind
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> ct_return <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Conf</span></span><span style="color: #990000">.</span>ct_return
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> stream <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Conf</span></span><span style="color: #990000">.</span>stream <span style="color: #990000">*</span> <span style="color: #009900">int</span> <span style="color: #990000">*</span> <span style="color: #009900">int</span> <span style="color: #990000">*</span> <span style="color: #009900">char</span>
-  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> empty_stream <span style="color: #990000">=</span>
-    <span style="font-weight: bold"><span style="color: #000080">Conf</span></span><span style="color: #990000">.</span>empty_stream<span style="color: #990000">,</span> <span style="color: #993399">0</span><span style="color: #990000">,</span> <span style="color: #993399">0</span><span style="color: #990000">,</span> 'x'
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> position <span style="color: #990000">=</span> <span style="color: #009900">int</span> <span style="color: #990000">*</span> <span style="color: #009900">int</span>
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> cmp_position <span style="color: #990000">(</span>l1<span style="color: #990000">,</span> c1<span style="color: #990000">)</span> <span style="color: #990000">(</span>l2<span style="color: #990000">,</span> c2<span style="color: #990000">)</span> <span style="color: #990000">=</span>
     <span style="font-weight: bold"><span style="color: #0000FF">match</span></span> <span style="font-weight: bold"><span style="color: #000080">Int</span></span><span style="color: #990000">.</span>compare l1 l2 <span style="font-weight: bold"><span style="color: #0000FF">with</span></span>
@@ -3284,7 +3369,7 @@ http://www.gnu.org/software/src-highlite -->
 <div id="footer">
 <div id="footer-text">
 Version 0.1<br />
-Last updated 2016-12-27 19:12:56 CET
+Last updated 2017-02-04 11:39:35 CET
 </div>
 </div>
 </body>
