@@ -1223,7 +1223,9 @@ or one occurrence of +p+:
 [source,ml]
 ----
 let optional ~def p = p ||| return def
-let optional_greedy ~def p = (p +- check (nay p)) ||| return def
+let optional_greedy ~def p =
+  p |||
+  (check (nay p) >>: fun () -> def)
 ----
 
 The +optional_greedy+ above is to avoid considering not consuming a matching
@@ -1234,6 +1236,45 @@ token as a possible solution.
 ----
 val optional : def:'b -> 'b t -> 'b t
 val optional_greedy : def:'b -> 'b t -> 'b t
+----
+
+Which behavior we'd better test:
+
+.tests
+[source,ml]
+----
+"optional behavior" >:: (
+  fun _ctx ->
+    let opt_char c = optional ~def:'x' (item c) in
+    let ab = stream_of_string "ab" in
+    assert_same_results (Tuple2.print Char.print Char.print)
+      (None, [('a', 'b'), no_corr, []])
+      ((opt_char 'a' ++ item 'b') [] None no_corr ab) ;
+    let b = stream_of_string "b" in
+    assert_same_results (Tuple2.print Char.print Char.print)
+      (None, [('x', 'b'), no_corr, []])
+      ((opt_char 'a' ++ item 'b') [] None no_corr b) ;
+    assert_same_results (Tuple2.print Char.print Char.print)
+      (None, [('x', 'b'), no_corr, [] ;
+              ('b', 'x'), no_corr, [] ;
+              ('x', 'x'), no_corr, [0,'b']])
+      ((opt_char 'b' ++ opt_char 'b') [] None no_corr b)
+) ;
+"optional_greedy really is" >:: (
+  fun _ctx ->
+    let opt_char c = optional_greedy ~def:'x' (item c) in
+    let ab = stream_of_string "ab" in
+    assert_same_results (Tuple2.print Char.print Char.print)
+      (None, [('a', 'b'), no_corr, []])
+      ((opt_char 'a' ++ item 'b') [] None no_corr ab) ;
+    let b = stream_of_string "b" in
+    assert_same_results (Tuple2.print Char.print Char.print)
+      (None, [('x', 'b'), no_corr, []])
+      ((opt_char 'a' ++ item 'b') [] None no_corr b) ;
+    assert_same_results (Tuple2.print Char.print Char.print)
+      (None, [('b', 'x'), no_corr, []])
+      ((opt_char 'b' ++ opt_char 'b') [] None no_corr b)
+) ;
 ----
 
 The +repeat+ combinator is a swiss-army knife for all variants of
