@@ -2637,11 +2637,14 @@ Another simple wrapper keeping track of the position as number of lines and
 columns must sneak at the obtained tokens (looking for newlines) and
 therefore works only with streams of characters:
 
+TODO:
+1. Parsers.CONFIG should have a function to turn a string into a stream.
+2. We should have a user-manual or a few simple easy functor for the end users.   
+
 .ParsersPositions.ml: pairing a line number and column number with every characters
 [source,ml]
 ----
-module LineCol (Conf : Parsers.CONFIG with type token = char
-                                       and type position = unit)
+module LineCol (Conf : Parsers.CONFIG with type token = char)
   : Parsers.CONFIG with type token = Conf.token
                     and type position = int * int
                     and type stream = Conf.stream * int * int * char
