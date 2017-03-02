@@ -1725,7 +1725,7 @@ let print_error_context fmt = function
   | x::rest ->
     let sep = " while looking for " in
     Printf.fprintf fmt "Cannot find %s%a" x
-      (List.print ~first:sep ~sep String.print) rest
+      (List.print ~first:sep ~last:"" ~sep String.print) rest
 
 let print_error fmt = function
   | None -> Printf.fprintf fmt "Ok"
