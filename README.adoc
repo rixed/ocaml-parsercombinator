@@ -668,7 +668,27 @@ need to get this feature from such a tool as
 https://github.com/vincent-hugot/iTeML[qtest] and will use
 http://ounit.forge.ocamlcore.org/api-ounit/index.html[oUnit] directly.
 
-Supposing for now that we have all the required printers we can set up a
+It would be convenient to have a function to convert a string into a +stream+,
+and not only during tests but also for real use when all the input is available at once.
+Let's thus add this into the +CONFIG+ signature:
+
+.Parser configuration: convert from string
+[source,ml]
+----
+val stream_of_string : string -> stream
+----
+
+.other SimpleConfig definitions:
+[source,ml]
+----
+let stream_of_string s =
+  let rec loop n tl =
+    if n < 0 then tl else
+    loop (n-1) ((n, s.[n]) :: tl) in
+  loop (String.length s - 1) []
+----
+
+Supposing for now that we have also all the required printers we can set up a
 satisfying environment for tests:
 
 .test.ml: the stage.
@@ -682,12 +702,6 @@ open ParsersCorrections
 module P = Parsers.Make (Parsers.SimpleConfig (Char))
 (* ...other tested modules... *)
 open P
-
-let stream_of_string s =
-  let rec loop n tl =
-    if n < 0 then tl else
-    loop (n-1) ((n, s.[n]) :: tl) in
-  loop (String.length s - 1) []
 
 let max_changes = 3
 let corr = ParsersBoundedSet.make max_changes
@@ -2615,6 +2629,7 @@ struct
         ct_return (Item (state, tok), (stream', state+1))
       | EndOfStream, stream' ->
         ct_return (EndOfStream, (stream', state)))
+  let stream_of_string str = Conf.stream_of_string str, 0
 end
 ----
 
@@ -2655,6 +2670,8 @@ struct
         ct_return (Item ((line, col), tok), (stream', line, col, tok))
       | EndOfStream, stream' ->
         ct_return (EndOfStream, (stream', line, col, last_tok)))
+  let stream_of_string str = Conf.stream_of_string str, 0, 0, '\000'
 end
 ----
+
 
