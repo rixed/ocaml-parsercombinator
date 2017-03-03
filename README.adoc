@@ -543,12 +543,13 @@ struct
   let cmp_position = Int.compare
   let print_position fmt p =
     Printf.fprintf fmt "offset %d" p
-  type stream = (position * token) list
-  let print_stream fmt = List.print (fun fmt (_p, t) ->
-    Printf.fprintf fmt "%a" print_token t) fmt
+  type stream = position * token list
+  let print_stream fmt (_, s) = List.print (fun fmt t ->
+    Printf.fprintf fmt "%a" print_token t) fmt s
+  let current_position (ofs, _) = ofs
   let take = function
-    | [] -> EndOfStream, []
-    | x :: rest -> Item x, rest
+    | (_, []) as s -> EndOfStream, s
+    | ofs, (x::rest) -> Item (ofs, x), (ofs+1, rest)
   let ct_return x = x
   let ct_bind x f = f x
   (* ...other SimpleConfig definitions... *)
@@ -682,10 +683,7 @@ val stream_of_string : string -> stream
 [source,ml]
 ----
 let stream_of_string s =
-  let rec loop n tl =
-    if n < 0 then tl else
-    loop (n-1) ((n, s.[n]) :: tl) in
-  loop (String.length s - 1) []
+  0, String.to_list s
 ----
 
 Supposing for now that we have also all the required printers we can set up a
@@ -712,7 +710,10 @@ let correction_at postok m =
 
 let no_corr = Parsers.no_error_correction
 let rest = stream_of_string "glop glop pas glop"
-let no_input = []
+let no_input = 0, []
+let drop ?(sep_len=0) n (o, lst) =
+  let n' = 1 + (n-1)*(1+sep_len) in
+  o + n', List.drop n' lst
 
 (* ...other global functions or types for testing... *)
 
@@ -756,11 +757,11 @@ let () =
       [ "stream_of_empty" >:: (
           fun _ctx ->
             assert_equal ~printer:string_of_int
-              0 (List.length (stream_of_string ""))) ;
+              0 (List.length (stream_of_string "" |> snd))) ;
         "stream_of_string basic" >:: (
           fun _ctx ->
             assert_equal ~printer:string_of_int
-              2 (List.length (stream_of_string "ab"))) ;
+              2 (List.length (stream_of_string "ab" |> snd))) ;
         "(no) corrections allowed" >:: (
           fun _ctl ->
             assert_bool "no_corr is full"
@@ -793,7 +794,7 @@ not cause too much worries):
 "return succeed even at EOF" >:: (
   fun _ctx ->
     assert_same_results Int.print
-      (None, [42, no_corr, []])
+      (None, [42, no_corr, (0,[])])
       (return 42 [] None no_corr no_input)
 ) ;
 "fail fails" >:: (
@@ -855,7 +856,7 @@ And the accompanying tests:
 "eof succeed" >:: (
   fun _ctx ->
     assert_same_results Unit.print
-      (None, [(), no_corr, []])
+      (None, [(), no_corr, (0,[])])
       (eof [] None no_corr no_input)
 ) ;
 "eof fails" >:: (
@@ -870,7 +871,7 @@ And the accompanying tests:
   fun _ctx ->
     assert_same_results Unit.print
       (None, [(), correction_at (Item (0, 'g'))
-                  "eof", [] ])
+                  "eof", (18,[]) ])
       (eof [] None corr rest)
 ) ;
 *)
@@ -973,7 +974,7 @@ val range : token -> token -> string -> token t
 "item canonical success" >:: (
   fun _ctx ->
     assert_same_results Char.print
-      (None, ['g', no_corr, List.tl rest])
+      (None, ['g', no_corr, (1, List.tl (snd rest))])
       (item 'g' [] None no_corr rest)
 ) ;
 "item canonical failure" >:: (
@@ -1143,10 +1144,10 @@ Now let's test that we can indeed sequence parsers:
   fun _ctx ->
     let ab = stream_of_string "ab" in
     assert_same_results (Tuple2.print Char.print Char.print)
-      (None, [('a', 'b'), no_corr, []])
+      (None, [('a', 'b'), no_corr, (2,[])])
       ((item 'a' ++ item 'b') [] None no_corr ab) ;
     assert_same_results Char.print
-      (None, ['a', no_corr, []])
+      (None, ['a', no_corr, (2,[])])
       ((item 'a' +- item 'b') [] None no_corr ab)
 ) ;
 ----
@@ -1204,10 +1205,10 @@ With sequences and alternatives we can start writing some interesting tests:
     let a_or_b = item 'a' ||| item 'b' in
     let z = stream_of_string "z" in
     assert_same_results Char.print
-      (None, ['a', no_corr, []])
+      (None, ['a', no_corr, (1,[])])
       (a_or_b [] None no_corr (stream_of_string "a")) ;
     assert_same_results Char.print
-      (None, ['b', no_corr, []])
+      (None, ['b', no_corr, (1,[])])
       (a_or_b [] None no_corr (stream_of_string "b")) ;
     assert_same_results Char.print
       (Some { what = ["b"] ;
@@ -1262,16 +1263,16 @@ Which behavior we'd better test:
     let opt_char c = optional ~def:'x' (item c) in
     let ab = stream_of_string "ab" in
     assert_same_results (Tuple2.print Char.print Char.print)
-      (None, [('a', 'b'), no_corr, []])
+      (None, [('a', 'b'), no_corr, (2,[])])
       ((opt_char 'a' ++ item 'b') [] None no_corr ab) ;
     let b = stream_of_string "b" in
     assert_same_results (Tuple2.print Char.print Char.print)
-      (None, [('x', 'b'), no_corr, []])
+      (None, [('x', 'b'), no_corr, (1,[])])
       ((opt_char 'a' ++ item 'b') [] None no_corr b) ;
     assert_same_results (Tuple2.print Char.print Char.print)
-      (None, [('x', 'b'), no_corr, [] ;
-              ('b', 'x'), no_corr, [] ;
-              ('x', 'x'), no_corr, [0,'b']])
+      (None, [('x', 'b'), no_corr, (1,[]) ;
+              ('b', 'x'), no_corr, (1,[]) ;
+              ('x', 'x'), no_corr, (0,['b'])])
       ((opt_char 'b' ++ opt_char 'b') [] None no_corr b)
 ) ;
 "optional_greedy really is" >:: (
@@ -1279,14 +1280,14 @@ Which behavior we'd better test:
     let opt_char c = optional_greedy ~def:'x' (item c) in
     let ab = stream_of_string "ab" in
     assert_same_results (Tuple2.print Char.print Char.print)
-      (None, [('a', 'b'), no_corr, []])
+      (None, [('a', 'b'), no_corr, (2,[])])
       ((opt_char 'a' ++ item 'b') [] None no_corr ab) ;
     let b = stream_of_string "b" in
     assert_same_results (Tuple2.print Char.print Char.print)
-      (None, [('x', 'b'), no_corr, []])
+      (None, [('x', 'b'), no_corr, (1,[])])
       ((opt_char 'a' ++ item 'b') [] None no_corr b) ;
     assert_same_results (Tuple2.print Char.print Char.print)
-      (None, [('b', 'x'), no_corr, []])
+      (None, [('b', 'x'), no_corr, (1,[])])
       ((opt_char 'b' ++ opt_char 'b') [] None no_corr b)
 ) ;
 ----
@@ -1425,32 +1426,31 @@ val repeat_greedy :
         ((if greedy then repeat_greedy else repeat)
            ~sep ?min ?max (item 'a') [] None no_corr rest) in
     let test_with_sep sep sep_len rest =
-      let drop n = List.drop (1 + (n-1)*(1+sep_len)) rest in
       assert_ok ~sep rest
         (None,
-         [['a';'a';'a'], no_corr, drop 3 ;
-          ['a';'a'],     no_corr, drop 2 ;
-          ['a'],         no_corr, drop 1 ;
+         [['a';'a';'a'], no_corr, drop ~sep_len 3 rest ;
+          ['a';'a'],     no_corr, drop ~sep_len 2 rest ;
+          ['a'],         no_corr, drop ~sep_len 1 rest ;
           [],            no_corr, rest]) ;
       (* Same with min=2 *)
       assert_ok ~sep ~min:2 rest
         (None,
-         [['a';'a';'a'], no_corr, drop 3 ;
-          ['a';'a'],     no_corr, drop 2]) ;
+         [['a';'a';'a'], no_corr, drop ~sep_len 3 rest ;
+          ['a';'a'],     no_corr, drop ~sep_len 2 rest]) ;
       (* Testing max=2 *)
       assert_ok ~sep ~max:2 rest
         (None,
-         [['a';'a'],     no_corr, drop 2;
-          ['a'],         no_corr, drop 1;
+         [['a';'a'],     no_corr, drop ~sep_len 2 rest;
+          ['a'],         no_corr, drop ~sep_len 1 rest;
           [],            no_corr, rest]) ;
       (* Now with min and max *)
       assert_ok ~sep ~min:1 ~max:2 rest
         (None,
-         [['a';'a'],     no_corr, drop 2 ;
-          ['a'],         no_corr, drop 1]) ;
+         [['a';'a'],     no_corr, drop ~sep_len 2 rest ;
+          ['a'],         no_corr, drop ~sep_len 1 rest]) ;
       (* min = max *)
       assert_ok ~sep ~min:2 ~max:2 rest
-        (None, [['a';'a'],     no_corr, drop 2]) in
+        (None, [['a';'a'],     no_corr, drop ~sep_len 2 rest]) in
     let aaab = stream_of_string "aaab"
     and a_a_a_b = stream_of_string "a_a_a_b"
     and _a_a_a_b = stream_of_string "_a_a_a_b" in
@@ -1458,10 +1458,10 @@ val repeat_greedy :
     test_with_sep underscore 1 a_a_a_b ;
     assert_ok ~greedy:true ~sep:none aaab
       (None,
-       [['a';'a';'a'], no_corr, List.drop 3 aaab]) ;
+       [['a';'a';'a'], no_corr, drop 3 aaab]) ;
     assert_ok ~greedy:true ~sep:underscore a_a_a_b
       (None,
-       [['a';'a';'a'], no_corr, List.drop 5 a_a_a_b]) ;
+       [['a';'a';'a'], no_corr, drop 5 a_a_a_b]) ;
     (* Do not allow a separator at start *)
     assert_ok ~greedy:true ~sep:underscore _a_a_a_b
       (None, [[], no_corr, _a_a_a_b])
@@ -1536,13 +1536,13 @@ With all these new combinators, more interesting tests can be devised:
     and rest3 = stream_of_string "30005"
     and rest4 = stream_of_string "3005" in
     assert_same_results (List.print Char.print)
-      (None, [['0'], no_corr, List.drop 2 rest1])
+      (None, [['0'], no_corr, drop 2 rest1])
       (p [] None no_corr rest1) ;
     assert_same_results (List.print Char.print)
-      (None, [['0'], no_corr, List.drop 2 rest2])
+      (None, [['0'], no_corr, drop 2 rest2])
       (p [] None no_corr rest2) ;
     assert_same_results (List.print Char.print)
-      (None, [['0';'0';'0'], no_corr, List.drop 4 rest3])
+      (None, [['0';'0';'0'], no_corr, drop 4 rest3])
       (p [] None no_corr rest3) ;
     assert_same_results (List.print Char.print)
       (Some { what = ["0"] ;
@@ -2008,7 +2008,7 @@ let integer m =
       "-0b10", -0b10 ] |>
     List.iter (fun (input, output) ->
       assert_same_results Int.print
-        (None, [output, no_corr, []])
+        (None, [output, no_corr, (String.length input, [])])
         ((integer +- eof) [] None no_corr (stream_of_string input)))
 ) ;
 "not decimal number immediate" >:: (
@@ -2081,7 +2081,7 @@ let floating_point m =
       "1.", 1.0 ] |>
     List.iter (fun (input, output) ->
       assert_same_results Float.print
-        (None, [output, no_corr, []])
+        (None, [output, no_corr, (String.length input, [])])
         ((floating_point +- eof) [] None no_corr (stream_of_string input)))
 ) ;
 ----
@@ -2252,11 +2252,11 @@ Let's see it in action:
          exp2 for right associative parsing. *)
       let input = stream_of_string input_str in
       assert_same_results ~msg:"left assoc." binary_ops_reducer_test_result_print
-        (None, [exp1, no_corr, []])
+        (None, [exp1, no_corr, (String.length input_str, [])])
         ((binary_ops_reducer ~op ~term ~sep:none ~reduce ~right_associative:false
           +- eof) [] None no_corr input) ;
       assert_same_results ~msg:"right assoc." binary_ops_reducer_test_result_print
-        (None, [exp2, no_corr, []])
+        (None, [exp2, no_corr, (String.length input_str, [])])
         ((binary_ops_reducer ~op ~term ~sep:none ~reduce ~right_associative:true
           +- eof) [] None no_corr input))
 ) ;
@@ -2328,7 +2328,7 @@ Let's also test the handling of precedence with a small calculator:
     List.iter (fun (input_str, exp) ->
       let input = stream_of_string input_str in
       assert_same_results Int.print
-        (None, [exp, no_corr, []])
+        (None, [exp, no_corr, (String.length input_str, [])])
         ((left_assoc_low_prec +- eof) [] None no_corr input))
 ) ;
 ----
