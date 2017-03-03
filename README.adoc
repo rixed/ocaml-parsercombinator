@@ -661,6 +661,8 @@ So that we could write +check m (nay p)+.
 val nay : 'b t -> unit t
 ----
 
+Notice that this +nay+ parser do not consume any input.
+
 === Tests
 
 It is important to have a test infrastructure in place before it's needed.
@@ -1686,6 +1688,14 @@ val print_position : 'o BatInnerIO.output -> position -> unit
 val print_stream : 'o BatInnerIO.output -> stream -> unit
 ----
 
+Also, for convenience:
+
+.Parser configuration:
+[source,ml]
+----
+val current_position : stream -> position
+----
+
 With a printer for +ParsersBoundedSet.t+ we could also print corrections:
 
 .ParsersBoundedSet.ml: printer
@@ -2623,6 +2633,7 @@ struct
   let print_position fmt ofs =
     Printf.fprintf fmt "offset %d" ofs
   let print_stream fmt (str, _) = Conf.print_stream fmt str
+  let current_position (_, ofs) = ofs
   let take (stream, state) =
     ct_bind (Conf.take stream) (function
       | Item (_, tok), stream' ->
@@ -2664,6 +2675,7 @@ struct
   let print_position fmt (line, col) =
     Printf.fprintf fmt "line %d, col %d" line col
   let print_stream fmt (str, _, _, _) = Conf.print_stream fmt str
+  let current_position (_, line, col, _) = line, col
   let take (stream, line, col, last_tok) =
     ct_bind (Conf.take stream) (function
       | Item (_, tok), stream' ->
