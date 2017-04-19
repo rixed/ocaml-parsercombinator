@@ -628,8 +628,8 @@ is that it explores forcing a success in case the check fails.
 .Parser library: check
 [source,ml]
 ----
-let check p m e c s =
-  let m = "check"::m in
+let check ?(what="check") p m e c s =
+  let m = what::m in
   ct_bind (p m e c s) (function
     | e', [] -> fail_or_maybe_not () m e' c s
     | e', _ -> return () m e' c s)
@@ -638,7 +638,7 @@ let check p m e c s =
 .Parser signature
 [source,ml]
 ----
-val check : 'b t -> unit t
+val check : ?what:string -> 'b t -> unit t
 ----
 
 Another parser that will prove useful (despite contributing no value to the
@@ -673,8 +673,8 @@ https://github.com/vincent-hugot/iTeML[qtest] and will use
 http://ounit.forge.ocamlcore.org/api-ounit/index.html[oUnit] directly.
 
 It would be convenient to have a function to convert a string into a +stream+,
-and not only during tests but also for real use when all the input is available at once.
-Let's thus add this into the +CONFIG+ signature:
+and not only during tests but also for real use when all the input is available
+at once.  Let's thus add this into the +CONFIG+ signature:
 
 .Parser configuration: convert from string
 [source,ml]
@@ -1293,6 +1293,22 @@ Which behavior we'd better test:
       (None, [('b', 'x'), no_corr, (1,[])])
       ((opt_char 'b' ++ opt_char 'b') [] None no_corr b)
 ) ;
+----
+
+Sometime it's more convenient that the optional parser return an optional value
+instead of a default one. Then one can use +None+ as the default and combine
+the parser with this +some+ parser, to make +optional+ returns an option type:
+
+.Parser library: some
+[source,ml]
+----
+let some p = p >>: fun x -> Some x
+----
+
+.Parser signature
+[source,ml]
+----
+val some : 'a t -> 'a option t
 ----
 
 The +repeat+ combinator is a swiss-army knife for all variants of
@@ -2514,6 +2530,9 @@ like a Parsers.CONFIG:
   let cmp_position () () = 0
   let print_position fmt () =
     String.print fmt "some location"
+  let stream_of_string _str =
+    failwith "Not implemented"
+  let current_position _ = ()
 end
 ----
 
@@ -2522,8 +2541,8 @@ end
 +LWT+ already provides a +Lwt_stream.t+ type for streams, that you would expect
 to be persistent given the threading context. But actually those are
 destructive, therefore useless for us. Let's use instead the list of blocks
-constructed above. HEre is an exemple implementation that reads bytes from a
-file:
+constructed above. Here is an example implementation that reads bytes from a
+file descriptor:
 
 .ParsersLwtConfig.ml: file parsers for LWT
 [source,ml]
@@ -2659,7 +2678,7 @@ TODO:
 module LineCol (Conf : Parsers.CONFIG with type token = char)
   : Parsers.CONFIG with type token = Conf.token
                     and type position = int * int
-                    and type stream = Conf.stream * int * int * char
+                    and type stream = Conf.stream * int * int
                     and type 'a ct = 'a Conf.ct =
 struct
   type token = Conf.token
@@ -2667,7 +2686,7 @@ struct
   type 'a ct = 'a Conf.ct
   let ct_bind = Conf.ct_bind
   let ct_return = Conf.ct_return
-  type stream = Conf.stream * int * int * char
+  type stream = Conf.stream * int * int
   type position = int * int
   let cmp_position (l1, c1) (l2, c2) =
     match Int.compare l1 l2 with
@@ -2675,18 +2694,18 @@ struct
     | x -> x
   let print_position fmt (line, col) =
     Printf.fprintf fmt "line %d, col %d" line col
-  let print_stream fmt (str, _, _, _) = Conf.print_stream fmt str
-  let current_position (_, line, col, _) = line, col
-  let take (stream, line, col, last_tok) =
+  let print_stream fmt (str, _, _) = Conf.print_stream fmt str
+  let current_position (_, line, col) = line, col
+  let take (stream, line, col) =
     ct_bind (Conf.take stream) (function
       | Item (_, tok), stream' ->
-        let line, col =
-          if last_tok = '\n' then (line+1, 0)
+        let line', col' =
+          if tok = '\n' then (line+1, 0)
           else (line, col+1) in
-        ct_return (Item ((line, col), tok), (stream', line, col, tok))
+        ct_return (Item ((line, col), tok), (stream', line', col'))
       | EndOfStream, stream' ->
-        ct_return (EndOfStream, (stream', line, col, last_tok)))
-  let stream_of_string str = Conf.stream_of_string str, 0, 0, '\000'
+        ct_return (EndOfStream, (stream', line, col)))
+  let stream_of_string str = Conf.stream_of_string str, 0, 0
 end
 ----
 
