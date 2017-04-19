@@ -483,16 +483,17 @@ function turns it into a more edible +result+ type:
 .Parser library: building a final result from possible results
 [source,ml]
 ----
-let to_result (e, r) =
-  (* If we have a single solution then that's the one! *)
-  match r with
-  | [ b, c, s ] ->
-    if ParsersBoundedSet.is_empty c then Ok (b, s)
-    else Bad (Approximation (b, c, s))
-  | [] ->
-    Bad (NoSolution e)
-  | lst ->
-    Bad (Ambiguous lst)
+let to_result x =
+  ct_bind x (fun (e, r) ->
+    (* If we have a single solution then that's the one! *)
+    ct_return (match r with
+    | [ b, c, s ] ->
+      if ParsersBoundedSet.is_empty c then Ok (b, s)
+      else Bad (Approximation (b, c, s))
+    | [] ->
+      Bad (NoSolution e)
+    | lst ->
+      Bad (Ambiguous lst)))
 ----
 
 of type:
@@ -500,8 +501,8 @@ of type:
 .Parser signature
 [source,ml]
 ----
-val to_result : error option * 'b possible_result list ->
-                ('b * stream, 'b failure) result
+val to_result : (error option * 'b possible_result list) ct ->
+                ('b * stream, 'b failure) result ct
 ----
 
 with:
