@@ -2578,6 +2578,42 @@ struct
 end
 ----
 
+If you prefer +Lwt_io+ channels instead:
+
+.ParsersLwtConfig.ml: file parsers for LWT channels
+[source,ml]
+----
+module ChannelReader :
+  ParsersConfig.CONFIG with type token = char
+                        and type 'a ct = 'a Lwt.t
+                        and type channel = Lwt_io.input_channel =
+struct
+  (* Same Lwt bindings as above: *)
+  type 'a ct = 'a Lwt.t
+  let ct_bind = Lwt.bind
+  let ct_return = Lwt.return
+
+  (* And same tokens *)
+  type token = char
+  let print_token fmt c =
+    Printf.fprintf fmt "%C" c
+
+  (* Same byte buffers: *)
+  type buf = bytes
+  let nth = Bytes.get
+
+  (* But now we read from a Lwt_io.input_channel: *)
+  type channel = Lwt_io.input_channel
+  let read_buf channel =
+    let max_len = 1024 in
+    let buf = Bytes.create max_len in
+    let%lwt r = Lwt_io.read_into channel buf 0 max_len in
+    Lwt.return (
+      if r = 0 then None
+      else Some (buf, 0, r))
+end
+----
+
 === Blocking Unix CONFIG
 
 This configuration assumes that it is OK to block when reading tokens (assuming
