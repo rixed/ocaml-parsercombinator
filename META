@@ -1,14 +1,12 @@
 description = "Resumable combinatoric parser with error detection"
 version = "0.2"
 
-package "common" (
-  requires = "batteries"
-  archive(byte) = "parsercombinator.cma"
-  archive(native) = "parsercombinator.cmxa"
-)
+requires = "batteries"
+archive(byte) = "parsercombinator.cma"
+archive(native) = "parsercombinator.cmxa"
 
 package "lwt" (
   archive(byte) = "parsercombinator-lwt.cma"
   archive(native) = "parsercombinator-lwt.cmxa"
-  requires = "parsercombinator.common lwt.unix lwt.ppx"
+  requires = "lwt.unix lwt.ppx"
 )
