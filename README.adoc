@@ -1891,6 +1891,31 @@ let string ?case_sensitive s =
   loop 0
 ----
 
+One often wants to parse string literals (represented as C-like quoted strings):
+
+.usual parsers: quoted strings
+[source,ml]
+----
+let quoted_char ?(what="character") =
+  (char ~what:"escape sequence" '\\' -+
+   (* TODO: numercial escape sequences *)
+   anything ~what:"escaped character" >>: function
+     | 'n' -> '\n'
+     | 'r' -> '\r'
+     | 'b' -> '\b'
+     | 't' -> '\t'
+     | '\\' -> '\\'
+     | '"' -> '"'
+     | '\'' -> '\''
+     | c -> c) |||
+  cond what (fun c -> c <> '\\' && c <> '"') 'x'
+
+let quoted_string =
+  char ~what:"opening quote" '"' -+
+  repeat_greedy ~sep:none ~what:"quoted string" quoted_char +-
+  char ~what:"closing quote" '"' >>: String.of_list
+----
+
 === Numbers
 
 We will try to follow the most common conventions for parsing numbers.
