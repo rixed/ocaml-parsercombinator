@@ -2534,7 +2534,44 @@ http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">module</span></span> <span style="color: #009900">SimpleUsual</span> <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">ParsersUsual</span></span><span style="color: #990000">.</span><span style="color: #009900">Make</span> <span style="color: #990000">(</span><span style="color: #009900">P</span><span style="color: #990000">)</span>
 <span style="font-weight: bold"><span style="color: #000080">open</span></span> <span style="color: #009900">SimpleUsual</span></tt></pre></div></div>
 <div class="sect2">
-<h3 id="_strings">9.1. Strings</h3>
+<h3 id="_character_types">9.1. Character types</h3>
+<div class="paragraph"><p>It is common to check for various classes of character: blanks, numerics,
+alphanumerics, newlines&#8230;</p></div>
+<div class="listingblock">
+<div class="title">usual parsers: character classes</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> blank m <span style="color: #990000">=</span>
+  cond <span style="color: #FF0000">"blank"</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> c <span style="color: #990000">-&gt;</span> c <span style="color: #990000">=</span> ' ' <span style="color: #990000">||</span> c <span style="color: #990000">=</span> '<span style="color: #990000">\</span>t'<span style="color: #990000">)</span> ' ' m
+
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> carriage_return m <span style="color: #990000">=</span> item <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"carriage return"</span> '<span style="color: #990000">\</span>r' m
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> new_line m <span style="color: #990000">=</span> item <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"new line"</span> '<span style="color: #990000">\</span>n' m
+
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> newline m <span style="color: #990000">=</span>
+  <span style="color: #990000">(</span>optional <span style="color: #990000">~</span>def<span style="color: #990000">:</span>'<span style="color: #990000">\</span>r' carriage_return <span style="color: #990000">-+</span> new_line<span style="color: #990000">)</span> m
+
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> whitespace m <span style="color: #990000">=</span>
+  repeat_greedy <span style="color: #990000">~</span>min<span style="color: #990000">:</span><span style="color: #993399">1</span> <span style="color: #990000">~</span>sep<span style="color: #990000">:</span>none <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"whitespaces"</span> <span style="color: #990000">(</span>blank <span style="color: #990000">|||</span> newline<span style="color: #990000">)</span> m
+
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> opt_whitespace m <span style="color: #990000">=</span>
+  optional_greedy <span style="color: #990000">~</span>def<span style="color: #990000">:[]</span> whitespace m</tt></pre></div></div>
+<div class="paragraph"><p>Notice we read greedily the whitespaces because we want to avoid a <code>whitespace&#8201;&#8212;&#8201;whitespace</code> ambiguity. <code>optional_greedy</code> is there for the same reason.</p></div>
+<div class="listingblock">
+<div class="title">usual parsers: more character classes</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> lowercase m <span style="color: #990000">=</span> range 'a' 'z' <span style="color: #FF0000">"lowercase"</span> m
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> uppercase m <span style="color: #990000">=</span> range '<span style="color: #009900">A</span>' '<span style="color: #009900">Z</span>' <span style="color: #FF0000">"uppercase"</span> m
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> letter m <span style="color: #990000">=</span> <span style="color: #990000">(</span>lowercase <span style="color: #990000">|||</span> uppercase<span style="color: #990000">)</span> m
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> decimal_digit m <span style="color: #990000">=</span> range '<span style="color: #993399">0</span>' '<span style="color: #993399">9</span>' <span style="color: #FF0000">"digit"</span> m
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> alphanum m <span style="color: #990000">=</span> <span style="color: #990000">(</span>letter <span style="color: #990000">|||</span> decimal_digit<span style="color: #990000">)</span> m</tt></pre></div></div>
+</div>
+<div class="sect2">
+<h3 id="_strings">9.2. Strings</h3>
 <div class="paragraph"><p>Starting from the <code>char</code> parser that&#8217;s an <code>item</code> specialized in characters:</p></div>
 <div class="listingblock">
 <div class="title">usual parsers: chars</div>
@@ -2591,9 +2628,24 @@ http://www.gnu.org/software/src-highlite -->
   <span style="color: #009900">char</span> <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"opening quote"</span> '"' <span style="color: #990000">-+</span>
   repeat_greedy <span style="color: #990000">~</span>sep<span style="color: #990000">:</span>none <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"quoted string"</span> quoted_char <span style="color: #990000">+-</span>
   <span style="color: #009900">char</span> <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"closing quote"</span> '"' <span style="color: #990000">&gt;&gt;:</span> <span style="font-weight: bold"><span style="color: #000080">String</span></span><span style="color: #990000">.</span>of_list</tt></pre></div></div>
+<div class="paragraph"><p>Another usual offender is parsing C like identifiers (aka any words made of characters,
+numbers or underscore but not starting by a number):</p></div>
+<div class="listingblock">
+<div class="title">usual parsers: identifier</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> underscore m <span style="color: #990000">=</span> item <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"underscore"</span> '_' m
+
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> identifier <span style="color: #990000">?(</span>what<span style="color: #990000">=</span><span style="color: #FF0000">"identifier"</span><span style="color: #990000">)</span> <span style="color: #990000">=</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> first_char <span style="color: #990000">=</span> letter <span style="color: #990000">|||</span> underscore <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> any_char <span style="color: #990000">=</span> first_char <span style="color: #990000">|||</span> decimal_digit <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+  first_char <span style="color: #990000">++</span> repeat_greedy <span style="color: #990000">~</span>sep<span style="color: #990000">:</span>none <span style="color: #990000">~</span>what any_char <span style="color: #990000">&gt;&gt;:</span> <span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> <span style="color: #990000">(</span>c<span style="color: #990000">,</span> s<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
+    <span style="font-weight: bold"><span style="color: #000080">String</span></span><span style="color: #990000">.</span>of_list <span style="color: #990000">(</span>c <span style="color: #990000">::</span> s<span style="color: #990000">)</span></tt></pre></div></div>
 </div>
 <div class="sect2">
-<h3 id="_numbers">9.2. Numbers</h3>
+<h3 id="_numbers">9.3. Numbers</h3>
 <div class="paragraph"><p>We will try to follow the most common conventions for parsing numbers.
 Notice that a simple base 10 integer number must start with a non 0
 (otherwise it&#8217;s octal).  We make no exception for the single digit <em>0</em> which
@@ -2605,9 +2657,6 @@ by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">type</span></span> integer <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #000080">Int</span></span><span style="color: #990000">.</span>t <span style="font-style: italic"><span style="color: #9A1900">(* or maybe not? *)</span></span>
-
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> decimal_digit m <span style="color: #990000">=</span>
-  range '<span style="color: #993399">0</span>' '<span style="color: #993399">9</span>' <span style="color: #FF0000">"digit"</span> m
 
 <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> non_zero_decimal_digit m <span style="color: #990000">=</span>
   range '<span style="color: #993399">1</span>' '<span style="color: #993399">9</span>' <span style="color: #FF0000">"non-zero digit"</span> m
@@ -2621,8 +2670,6 @@ http://www.gnu.org/software/src-highlite -->
   <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> <span style="font-weight: bold"><span style="color: #0000FF">if</span></span> cc <span style="color: #990000">&gt;=</span> <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>code '<span style="color: #009900">A</span>' <span style="color: #990000">&amp;&amp;</span> cc <span style="color: #990000">&lt;=</span> <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>code '<span style="color: #009900">F</span>' <span style="font-weight: bold"><span style="color: #0000FF">then</span></span>
     cc <span style="color: #990000">-</span> <span style="font-weight: bold"><span style="color: #000080">Char</span></span><span style="color: #990000">.</span>code '<span style="color: #009900">A</span>' <span style="color: #990000">+</span> <span style="color: #993399">10</span>
   <span style="font-weight: bold"><span style="color: #0000FF">else</span></span> invalid_arg <span style="color: #FF0000">"c"</span>
-
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> underscore m <span style="color: #990000">=</span> item <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"underscore"</span> '_' m
 
 <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> unsigned_decimal_number <span style="color: #990000">?</span>what <span style="color: #990000">?(</span>inc_zero<span style="color: #990000">=</span><span style="font-weight: bold"><span style="color: #0000FF">true</span></span><span style="color: #990000">)</span> m <span style="color: #990000">=</span>
   <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> m <span style="color: #990000">=</span> may_add_context m what <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
@@ -2828,42 +2875,6 @@ http://www.gnu.org/software/src-highlite -->
    <span style="color: #990000">(</span>floating_point <span style="color: #990000">&gt;&gt;:</span> <span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> x <span style="color: #990000">-&gt;</span> <span style="color: #009900">Float</span> x<span style="color: #990000">))</span> m</tt></pre></div></div>
 </div>
 <div class="sect2">
-<h3 id="_character_types">9.3. Character types</h3>
-<div class="paragraph"><p>It is common to check for various classes of character: blanks, numerics,
-alphanumerics, newlines&#8230;</p></div>
-<div class="listingblock">
-<div class="title">usual parsers: character classes</div>
-<div class="content"><!-- Generator: GNU source-highlight 3.1.8
-by Lorenzo Bettini
-http://www.lorenzobettini.it
-http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> blank m <span style="color: #990000">=</span>
-  cond <span style="color: #FF0000">"blank"</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> c <span style="color: #990000">-&gt;</span> c <span style="color: #990000">=</span> ' ' <span style="color: #990000">||</span> c <span style="color: #990000">=</span> '<span style="color: #990000">\</span>t'<span style="color: #990000">)</span> ' ' m
-
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> carriage_return m <span style="color: #990000">=</span> item <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"carriage return"</span> '<span style="color: #990000">\</span>r' m
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> new_line m <span style="color: #990000">=</span> item <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"new line"</span> '<span style="color: #990000">\</span>n' m
-
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> newline m <span style="color: #990000">=</span>
-  <span style="color: #990000">(</span>optional <span style="color: #990000">~</span>def<span style="color: #990000">:</span>'<span style="color: #990000">\</span>r' carriage_return <span style="color: #990000">-+</span> new_line<span style="color: #990000">)</span> m
-
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> whitespace m <span style="color: #990000">=</span>
-  repeat_greedy <span style="color: #990000">~</span>sep<span style="color: #990000">:</span>none <span style="color: #990000">~</span>what<span style="color: #990000">:</span><span style="color: #FF0000">"whitespaces"</span> <span style="color: #990000">(</span>blank <span style="color: #990000">|||</span> newline<span style="color: #990000">)</span> m
-
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> opt_whitespace m <span style="color: #990000">=</span>
-  optional_greedy <span style="color: #990000">~</span>def<span style="color: #990000">:[]</span> whitespace m</tt></pre></div></div>
-<div class="paragraph"><p>Notice we read greedily the whitespaces because we want to avoid a <code>whitespace&#8201;&#8212;&#8201;whitespace</code> ambiguity. <code>optional_greedy</code> is there for the same reason.</p></div>
-<div class="listingblock">
-<div class="title">usual parsers: more character classes</div>
-<div class="content"><!-- Generator: GNU source-highlight 3.1.8
-by Lorenzo Bettini
-http://www.lorenzobettini.it
-http://www.gnu.org/software/src-highlite -->
-<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> lowercase m <span style="color: #990000">=</span> range 'a' 'z' <span style="color: #FF0000">"lowercase"</span> m
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> uppercase m <span style="color: #990000">=</span> range '<span style="color: #009900">A</span>' '<span style="color: #009900">Z</span>' <span style="color: #FF0000">"uppercase"</span> m
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> letter m <span style="color: #990000">=</span> <span style="color: #990000">(</span>lowercase <span style="color: #990000">|||</span> uppercase<span style="color: #990000">)</span> m
-<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> alphanum m <span style="color: #990000">=</span> <span style="color: #990000">(</span>letter <span style="color: #990000">|||</span> decimal_digit<span style="color: #990000">)</span> m</tt></pre></div></div>
-</div>
-<div class="sect2">
 <h3 id="_operations">9.4. Operations</h3>
 <div class="paragraph"><p>Operators are another frequent occurrence. Of course how to parse an
 "operation" is likely to depend on the problem at hand, but it&#8217;s still useful
@@ -2931,7 +2942,7 @@ by Lorenzo Bettini
 http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> binary_ops_reducer <span style="color: #990000">?(</span>right_associative<span style="color: #990000">=</span><span style="font-weight: bold"><span style="color: #0000FF">false</span></span><span style="color: #990000">)</span> <span style="color: #990000">~</span>op <span style="color: #990000">~</span>term <span style="color: #990000">~</span>sep <span style="color: #990000">~</span>reduce <span style="color: #990000">=</span>
-  term <span style="color: #990000">+-</span> sep <span style="color: #990000">++</span> repeat <span style="color: #990000">~</span>sep <span style="color: #990000">(</span>op <span style="color: #990000">+-</span> sep <span style="color: #990000">++</span> term<span style="color: #990000">)</span> <span style="color: #990000">&gt;&gt;:</span>
+  term <span style="color: #990000">++</span> optional_greedy <span style="color: #990000">~</span>def<span style="color: #990000">:[]</span> <span style="color: #990000">(</span>sep <span style="color: #990000">-+</span> repeat <span style="color: #990000">~</span>min<span style="color: #990000">:</span><span style="color: #993399">1</span> <span style="color: #990000">~</span>sep <span style="color: #990000">(</span>op <span style="color: #990000">+-</span> sep <span style="color: #990000">++</span> term<span style="color: #990000">))</span> <span style="color: #990000">&gt;&gt;:</span>
   <span style="font-weight: bold"><span style="color: #0000FF">fun</span></span> <span style="color: #990000">(</span>fst<span style="color: #990000">,</span> lst<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span> <span style="font-style: italic"><span style="color: #9A1900">(* lst is a list of (op result * term result) *)</span></span>
     <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> <span style="font-weight: bold"><span style="color: #0000FF">rec</span></span> loop_lst last_term <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
       <span style="color: #990000">|</span> <span style="color: #990000">[]</span> <span style="color: #990000">-&gt;</span> last_term
@@ -3482,7 +3493,7 @@ http://www.gnu.org/software/src-highlite -->
 <div id="footer-text">
 Version 0.1<br />
 Last updated
- 2017-06-07 18:30:33 CEST
+ 2017-06-07 23:09:54 CEST
 </div>
 </div>
 </body>
