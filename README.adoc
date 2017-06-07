@@ -2266,7 +2266,7 @@ do not share a common type).
 [source,ml]
 ----
 let binary_ops_reducer ?(right_associative=false) ~op ~term ~sep ~reduce =
-  term +- sep ++ repeat ~sep (op +- sep ++ term) >>:
+  term ++ optional_greedy ~def:[] (sep -+ repeat ~min:1 ~sep (op +- sep ++ term)) >>:
   fun (fst, lst) -> (* lst is a list of (op result * term result) *)
     let rec loop_lst last_term = function
       | [] -> last_term
