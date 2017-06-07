@@ -1858,6 +1858,43 @@ module SimpleUsual = ParsersUsual.Make (P)
 open SimpleUsual
 ----
 
+=== Character types
+
+It is common to check for various classes of character: blanks, numerics,
+alphanumerics, newlines...
+
+.usual parsers: character classes
+[source,ml]
+----
+let blank m =
+  cond "blank" (fun c -> c = ' ' || c = '\t') ' ' m
+
+let carriage_return m = item ~what:"carriage return" '\r' m
+let new_line m = item ~what:"new line" '\n' m
+
+let newline m =
+  (optional ~def:'\r' carriage_return -+ new_line) m
+
+let whitespace m =
+  repeat_greedy ~min:1 ~sep:none ~what:"whitespaces" (blank ||| newline) m
+
+let opt_whitespace m =
+  optional_greedy ~def:[] whitespace m
+----
+
+Notice we read greedily the whitespaces because we want to avoid a +whitespace
+-- whitespace+ ambiguity. +optional_greedy+ is there for the same reason.
+
+.usual parsers: more character classes
+[source,ml]
+----
+let lowercase m = range 'a' 'z' "lowercase" m
+let uppercase m = range 'A' 'Z' "uppercase" m
+let letter m = (lowercase ||| uppercase) m
+let decimal_digit m = range '0' '9' "digit" m
+let alphanum m = (letter ||| decimal_digit) m
+----
+
 === Strings
 
 Starting from the +char+ parser that's an +item+ specialized in characters:
@@ -1916,6 +1953,21 @@ let quoted_string =
   char ~what:"closing quote" '"' >>: String.of_list
 ----
 
+Another usual offender is parsing C like identifiers (aka any words made of characters,
+numbers or underscore but not starting by a number):
+
+.usual parsers: identifier
+[source,ml]
+----
+let underscore m = item ~what:"underscore" '_' m
+
+let identifier ?(what="identifier") =
+  let first_char = letter ||| underscore in
+  let any_char = first_char ||| decimal_digit in
+  first_char ++ repeat_greedy ~sep:none ~what any_char >>: fun (c, s) ->
+    String.of_list (c :: s)
+----
+
 === Numbers
 
 We will try to follow the most common conventions for parsing numbers.
@@ -1927,9 +1979,6 @@ will be parsed as octal.
 [source,ml]
 ----
 type integer = Int.t (* or maybe not? *)
-
-let decimal_digit m =
-  range '0' '9' "digit" m
 
 let non_zero_decimal_digit m =
   range '1' '9' "non-zero digit" m
@@ -1943,8 +1992,6 @@ let num_of_char c =
   else if cc >= Char.code 'A' && cc <= Char.code 'F' then
     cc - Char.code 'A' + 10
   else invalid_arg "c"
-
-let underscore m = item ~what:"underscore" '_' m
 
 let unsigned_decimal_number ?what ?(inc_zero=true) m =
   let m = may_add_context m what in
@@ -2148,42 +2195,6 @@ type number = Int of integer
 let number m =
   ((integer        >>: fun x -> Int x) |||
    (floating_point >>: fun x -> Float x)) m
-----
-
-=== Character types
-
-It is common to check for various classes of character: blanks, numerics,
-alphanumerics, newlines...
-
-.usual parsers: character classes
-[source,ml]
-----
-let blank m =
-  cond "blank" (fun c -> c = ' ' || c = '\t') ' ' m
-
-let carriage_return m = item ~what:"carriage return" '\r' m
-let new_line m = item ~what:"new line" '\n' m
-
-let newline m =
-  (optional ~def:'\r' carriage_return -+ new_line) m
-
-let whitespace m =
-  repeat_greedy ~sep:none ~what:"whitespaces" (blank ||| newline) m
-
-let opt_whitespace m =
-  optional_greedy ~def:[] whitespace m
-----
-
-Notice we read greedily the whitespaces because we want to avoid a +whitespace
--- whitespace+ ambiguity. +optional_greedy+ is there for the same reason.
-
-.usual parsers: more character classes
-[source,ml]
-----
-let lowercase m = range 'a' 'z' "lowercase" m
-let uppercase m = range 'A' 'Z' "uppercase" m
-let letter m = (lowercase ||| uppercase) m
-let alphanum m = (letter ||| decimal_digit) m
 ----
 
 === Operations
