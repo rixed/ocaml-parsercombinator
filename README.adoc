@@ -1902,13 +1902,15 @@ Starting from the +char+ parser that's an +item+ specialized in characters:
 .usual parsers: chars
 [source,ml]
 ----
+let quoted s = Printf.sprintf "%S" s
+
 let char ?what ?(case_sensitive=true) c =
   let other_case c =
     if Char.is_lowercase c then Char.uppercase c else
     if Char.is_uppercase c then Char.lowercase c else c in
   let c' = if case_sensitive then c else other_case c in
   let expl =
-    Option.default_delayed (fun () -> String.of_char c) what in
+    Option.default_delayed (fun () -> quoted (String.of_char c)) what in
   cond expl (fun x -> x = c || x = c') c
 ----
 
@@ -1923,7 +1925,7 @@ let string ?case_sensitive s =
   let rec loop i =
     if i >= String.length s then return ()
     else (
-      (char ~what:s ?case_sensitive s.[i]) -- (loop (i+1))
+      (char ~what:(quoted s) ?case_sensitive s.[i]) -- (loop (i+1))
     ) in
   loop 0
 ----
@@ -1949,7 +1951,7 @@ let quoted_char ?(what="character") =
 
 let quoted_string =
   char ~what:"opening quote" '"' -+
-  repeat_greedy ~sep:none ~what:"quoted string" quoted_char +-
+  repeat_greedy ~sep:none ~what:"a quoted string" quoted_char +-
   char ~what:"closing quote" '"' >>: String.of_list
 ----
 
