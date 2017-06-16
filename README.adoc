@@ -1012,7 +1012,7 @@ Before going too far we need to introduce functions that alter a parser result
 (equivalent of map, fold, filter...) and come up with a convenient syntax for
 those since they are going to be used prevalently.
 
-.Parser library: applying a function to all results of a parser
+.Applying a function to all results of a parser, take 1
 [source,ml]
 ----
 let map p f m e c s =
@@ -1022,7 +1022,35 @@ let map p f m e c s =
     ct_return (e', results'))
 ----
 
-The order of parameters is important so that +map p f+ is itself a parser.
+The order of parameters is important so that +map p f+ is itself a parser.  In
+practice though, we often want to filter the results in addition to mapping
+them.  For instance, +p+ should be a parser for numbers and we want to convert
+the sequence of character it outputs into a number, but want to accept only
+numbers below some limit. We will therefore allow f to throw a special
+exception to reject a solution:
+
+.Parser library: applying a function to all results of a parser, take 2
+[source,ml]
+----
+exception Reject of string
+
+let map p f m e c s =
+  ct_bind (p m e c s) (fun (e', results) ->
+    let rejection = ref None in
+    let results' =
+      List.filter_map (fun (x, corr, rest) ->
+        try Some (f x, corr, rest)
+        with Reject msg ->
+          if !rejection = None then
+            rejection := Some msg ;
+          None) results in
+    match !rejection with
+    | None -> ct_return (e', results')
+    | Some msg ->
+      ct_bind (take s) (fun (pt, _s') ->
+        ct_return (new_error pt (msg::m) e', results')))
+----
+
 An infix operator makes it even more convenient:
 
 .Parser library: infix operator for map
@@ -1034,6 +1062,7 @@ let (>>:) = map
 .Parser signature
 [source,ml]
 ----
+exception Reject of string
 val map   : 'b t -> ('b -> 'd) -> 'd t
 val (>>:) : 'b t -> ('b -> 'd) -> 'd t
 ----
