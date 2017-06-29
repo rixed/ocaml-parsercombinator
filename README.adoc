@@ -2006,10 +2006,14 @@ Notice that a simple base 10 integer number must start with a non 0
 (otherwise it's octal).  We make no exception for the single digit '0' which
 will be parsed as octal.
 
+We use the +Num+ module from the standard library to represent arbitrary
+integers as we use it only to store the representation of numbers (if we
+cared about efficiency of arithmetic operations we would use +zarith+).
+
 .usual parsers: integers
 [source,ml]
 ----
-type integer = Int.t (* or maybe not? *)
+type integer = Num.num
 
 let non_zero_decimal_digit m =
   range '1' '9' "non-zero digit" m
@@ -2017,14 +2021,15 @@ let non_zero_decimal_digit m =
 let num_of_char c =
   let cc = Char.code c in
   if cc >= Char.code '0' && cc <= Char.code '9' then
-    cc - Char.code '0'
+    Num.num_of_int (cc - Char.code '0')
   else if cc >= Char.code 'a' && cc <= Char.code 'f' then
-    cc - Char.code 'a' + 10
+    Num.num_of_int (cc - Char.code 'a' + 10)
   else if cc >= Char.code 'A' && cc <= Char.code 'F' then
-    cc - Char.code 'A' + 10
+    Num.num_of_int (cc - Char.code 'A' + 10)
   else invalid_arg "c"
 
 let unsigned_decimal_number ?what ?(inc_zero=true) m =
+  let ten = Num.num_of_int 10 in
   let m = may_add_context m what in
   let digits m = several ~sep:none decimal_digit m in
   ((if inc_zero then decimal_digit else non_zero_decimal_digit) +-
@@ -2033,7 +2038,7 @@ let unsigned_decimal_number ?what ?(inc_zero=true) m =
    fun (first, next) ->
    List.fold_left (fun c digits ->
      List.fold_left (fun c digit ->
-       c * 10 + num_of_char digit) c digits) 0 ([first]::next)) m
+       Num.add (Num.mul c ten) (num_of_char digit)) c digits) Num.zero ([first]::next)) m
 
 let signed neg p =
   p                                |||
@@ -2041,7 +2046,7 @@ let signed neg p =
   (item ~what:"sign" '-' -+ p >>: neg)
 
 let decimal_number ?(inc_zero=true) m =
-  signed Int.neg (unsigned_decimal_number ~inc_zero) m
+  signed Num.minus_num (unsigned_decimal_number ~inc_zero) m
 ----
 
 with the help of:
@@ -2065,18 +2070,19 @@ zero of course), as in perl.
 [source,ml]
 ----
 let non_decimal_integer base prefix digit =
+  let base = Num.num_of_int base in
   let digits m = several ~sep:none digit m in
   prefix -+ repeat ~sep:underscore ~what:"digits" digits >>:
      List.fold_left (fun c digits ->
        List.fold_left (fun c digit ->
-         c * base + num_of_char digit) c digits) 0
+         Num.add (Num.mul c base) (num_of_char digit)) c digits) Num.zero
 
 let octal_digit m =
   range '0' '7' "octal digit" m
 
 let octal_number m =
   (non_decimal_integer 8 (item '0') octal_digit |>
-   signed Int.neg) m
+   signed Num.minus_num) m
 
 let hexadecimal_digit m =
   cond "hexadecimal digit" (fun c ->
@@ -2091,7 +2097,7 @@ let non_decimal_integer_prefix x =
 let hexadecimal_number m =
   let prefix = non_decimal_integer_prefix 'x' in
   (non_decimal_integer 16 prefix hexadecimal_digit |>
-   signed Int.neg) m
+   signed Num.minus_num) m
 
 let binary_digit m =
   range '0' '1' "bit" m
@@ -2099,7 +2105,7 @@ let binary_digit m =
 let binary_number m =
   let prefix = non_decimal_integer_prefix 'b' in
   (non_decimal_integer 2 prefix binary_digit |>
-   signed Int.neg) m
+   signed Num.minus_num) m
 ----
 
 Finally, this parser can parse all kinds of integers seen so far:
@@ -2119,25 +2125,25 @@ let integer m =
 ----
 "integer immediate" >:: (
   fun _ctx ->
-    [ "4", 4 ;
-      "42", 42 ;
-      "12345", 12345 ;
-      "4_294_967_296", 4_294_967_296 ;
-      "042", 0o42 ;
-      "0x42", 0x42 ;
-      "0X42", 0x42 ;
-      "0xff", 0xff ;
-      "0b10", 0b10 ;
-      "0x", 0 ;
-      "0x4_2", 0x4_2 ;
-      "-4", -4 ;
-      "+4", 4 ;
-      "-042", -0o42 ;
-      "+042", 0o42 ;
-      "-0x42", -0x42 ;
-      "-0b10", -0b10 ] |>
+    [ "4", Num.num_of_int 4 ;
+      "42", Num.num_of_int 42 ;
+      "12345", Num.num_of_int 12345 ;
+      "4_294_967_296", Num.num_of_int 4_294_967_296 ;
+      "042", Num.num_of_int 0o42 ;
+      "0x42", Num.num_of_int 0x42 ;
+      "0X42", Num.num_of_int 0x42 ;
+      "0xff", Num.num_of_int 0xff ;
+      "0b10", Num.num_of_int 0b10 ;
+      "0x", Num.num_of_int 0 ;
+      "0x4_2", Num.num_of_int 0x4_2 ;
+      "-4", Num.num_of_int ~-4 ;
+      "+4", Num.num_of_int 4 ;
+      "-042", Num.num_of_int ~-0o42 ;
+      "+042", Num.num_of_int 0o42 ;
+      "-0x42", Num.num_of_int ~-0x42 ;
+      "-0b10", Num.num_of_int ~-0b10 ] |>
     List.iter (fun (input, output) ->
-      assert_same_results Int.print
+      assert_same_results Num.print
         (None, [output, no_corr, (String.length input, [])])
         ((integer +- eof) [] None no_corr (stream_of_string input)))
 ) ;
@@ -2146,7 +2152,7 @@ let integer m =
     [ "0_" ; "0X_" ; "_123" ; "123_" ; "12__34" ; "_" ; "_0x123" ;
       "-0_" ; "-_42" ] |>
     List.iter (fun input ->
-      assert_same_results Int.print
+      assert_same_results Num.print
         (None, [])
         ((integer +- eof) [] None no_corr (stream_of_string input)))
 ) ;
@@ -2168,7 +2174,7 @@ let fractional_part inv_base digit =
   several ~sep:underscore digits >>: fun digits ->
     List.fold_left (fun c_scale digits ->
         List.fold_left (fun (c, scale) digit ->
-            let n = num_of_char digit |> float_of_int in
+            let n = num_of_char digit |> Num.to_float in
             c +. n *. scale, scale *. inv_base
           ) c_scale digits
       ) (0., inv_base) digits |>
@@ -2177,9 +2183,9 @@ let fractional_part inv_base digit =
 let unsigned_decimal_fractional m =
   let dot m = item ~what:"fractional dot" '.' m in
   ((unsigned_decimal_number +- dot ++ fractional_part 0.1 decimal_digit) |||
-   (return 0 +- dot ++ fractional_part 0.1 decimal_digit)                |||
+   (return Num.zero +- dot ++ fractional_part 0.1 decimal_digit)                |||
    (unsigned_decimal_number +- dot ++ return 0.) >>:
-       fun (n, p) -> float_of_int n +. p
+       fun (n, p) -> Num.to_float n +. p
   ) m
 
 let decimal_fractional m =
@@ -2187,10 +2193,10 @@ let decimal_fractional m =
 
 let decimal_scientific m =
   ((decimal_fractional |||
-    (decimal_number >>: float_of_int)) +-
+    (decimal_number >>: Num.to_float)) +-
    cond "exponent delimiter" (fun c -> c = 'e' || c = 'E') 'e' ++
    decimal_number >>: fun (m, e) ->
-     m *. Float.pow 10. (float_of_int e) (* FIXME *)
+     m *. Float.pow 10. (Num.to_float e) (* FIXME *)
    ) m
 
 let floating_point m =
@@ -2383,11 +2389,12 @@ Let's also test the handling of precedence with a small calculator:
 "precedence and associativity" >:: (
   fun _ctx ->
     let value m = (decimal_digit >>: num_of_char) m in
-    let reduce t1 op t2 = match op with
-      | '+' -> t1+t2 | '-' -> t1-t2
-      | '*' -> t1*t2 | '/' -> t1/t2
-      | '^' -> int_of_float((float_of_int t1)**(float_of_int t2))
-      | _ -> assert false in
+    let reduce t1 op t2 =
+      let op = match op with
+        | '+' -> Num.add | '-' -> Num.sub
+        | '*' -> Num.mul | '/' -> Num.div
+        | '^' -> Num.pow | _ -> assert false in
+      op t1 t2 in
     let rec left_assoc_low_prec m =
       binary_ops_reducer ~op:(item '+' ||| item '-')
                          ~term:left_assoc_high_prec
@@ -2404,24 +2411,24 @@ Let's also test the handling of precedence with a small calculator:
     and left_assoc_highest_prec m =
       (value |||
        item '(' -+ left_assoc_low_prec +- item ')') m in
-    [ "0",            0 ;
-      "1+2",          3 ;
-      "1+2+3",        6 ;
-      "1+2+3+4",     10 ;
-      "5-1",          4 ;
-      "5-4-1",        0 ;
-      "(5-4)-1",      0 ;
-      "5-(4-1)",      2 ;
-      "4^3^2",   262144 ;
-      "4^(3^2)", 262144 ;
-      "(4^3)^2",   4096 ;
-      "3*2+1",        7 ;
-      "1+3*2",        7 ;
-      "(1+3)*2",      8 ;
-      "8/2/2",        2 ] |>
+    [ "0",       Num.num_of_int 0 ;
+      "1+2",     Num.num_of_int 3 ;
+      "1+2+3",   Num.num_of_int 6 ;
+      "1+2+3+4", Num.num_of_int 10 ;
+      "5-1",     Num.num_of_int 4 ;
+      "5-4-1",   Num.num_of_int 0 ;
+      "(5-4)-1", Num.num_of_int 0 ;
+      "5-(4-1)", Num.num_of_int 2 ;
+      "4^3^2",   Num.num_of_int 262144 ;
+      "4^(3^2)", Num.num_of_int 262144 ;
+      "(4^3)^2", Num.num_of_int 4096 ;
+      "3*2+1",   Num.num_of_int 7 ;
+      "1+3*2",   Num.num_of_int 7 ;
+      "(1+3)*2", Num.num_of_int 8 ;
+      "8/2/2",   Num.num_of_int 2 ] |>
     List.iter (fun (input_str, exp) ->
       let input = stream_of_string input_str in
-      assert_same_results Int.print
+      assert_same_results Num.print
         (None, [exp, no_corr, (String.length input_str, [])])
         ((left_assoc_low_prec +- eof) [] None no_corr input))
 ) ;
