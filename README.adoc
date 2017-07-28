@@ -170,6 +170,8 @@ stream to return an existential rather than universal type:
 ----
 open Batteries
 
+(* ...Parsers helpers... *)
+
 module type CONFIG = sig
   type token
   (* ...Parser configuration... *)
@@ -1707,7 +1709,7 @@ let add t x =
 It would also be convenient to provide a simple shortcut in +Parsers+ for
 cases where no error detection is required:
 
-.Parsers.ml: no error detection
+.Parsers helpers: no error detection
 [source,ml]
 ----
 let no_error_correction = ParsersBoundedSet.make 0
@@ -1860,6 +1862,51 @@ val print_result :
   ('b * stream, 'b failure) result -> unit
 ----
 
+=== Simple string scanners
+
+Thanks to the +stream_of_string+ function we can also devise a very simple to
+use +of_string+ function for any parser, that would come handy for testing
+or other simple circumstances.
+
+.Parser library: printers
+[source,ml]
+----
+let of_string p str =
+  let s = stream_of_string str in
+  ct_bind
+    ((p +- eof) [] None no_error_correction s |> to_result) (function
+    | Bad e -> ct_return (Bad e)
+    | Ok (res, _rest) -> ct_return (Ok res))
+----
+
+Notice that since we force the parser to reach the end of string we can discard
+from the result the unparsed rest of the stream, which will always be empty.
+
+Simplifying further, this exception throwing variant will just return the
+result without further ado. Notice that, for the sake of simplicity we don't
+force a +print_output+ argument so the error report will not be as detailed as
+the one given by +print_result+:
+
+.Parser library: printers
+[source,ml]
+----
+exception ParseError of string
+
+let of_string_exn p str =
+  ct_bind (of_string p str) (function
+  | Bad (Approximation _) -> raise (ParseError "Approximate result")
+  | Bad (Ambiguous _)     -> raise (ParseError "Ambiguous result")
+  | Bad (NoSolution e)    -> raise (ParseError (IO.to_string print_error e))
+  | Ok x -> ct_return x)
+----
+
+.Parser signature
+[source,ml]
+----
+exception ParseError of string
+val of_string : 'b t -> string -> ('b, 'b failure) result ct
+val of_string_exn : 'b t -> string -> 'b ct
+----
 
 == Parsing usual things
 
@@ -2818,5 +2865,3 @@ struct
   let stream_of_string str = Conf.stream_of_string str, 0, 0
 end
 ----
-
-
