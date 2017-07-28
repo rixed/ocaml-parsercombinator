@@ -808,6 +808,8 @@ http://www.lorenzobettini.it
 http://www.gnu.org/software/src-highlite -->
 <pre><tt><span style="font-weight: bold"><span style="color: #000080">open</span></span> <span style="color: #009900">Batteries</span>
 
+<span style="font-style: italic"><span style="color: #9A1900">(* ...Parsers helpers... *)</span></span>
+
 <span style="font-weight: bold"><span style="color: #0000FF">module</span></span> <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> <span style="color: #009900">CONFIG</span> <span style="color: #990000">=</span> <span style="font-weight: bold"><span style="color: #0000FF">sig</span></span>
   <span style="font-weight: bold"><span style="color: #0000FF">type</span></span> token
   <span style="font-style: italic"><span style="color: #9A1900">(* ...Parser configuration... *)</span></span>
@@ -2377,7 +2379,7 @@ http://www.gnu.org/software/src-highlite -->
 <div class="paragraph"><p>It would also be convenient to provide a simple shortcut in <code>Parsers</code> for
 cases where no error detection is required:</p></div>
 <div class="listingblock">
-<div class="title">Parsers.ml: no error detection</div>
+<div class="title">Parsers helpers: no error detection</div>
 <div class="content"><!-- Generator: GNU source-highlight 3.1.8
 by Lorenzo Bettini
 http://www.lorenzobettini.it
@@ -2532,6 +2534,53 @@ http://www.gnu.org/software/src-highlite -->
   <span style="color: #990000">(</span>'o <span style="font-weight: bold"><span style="color: #000080">BatInnerIO</span></span><span style="color: #990000">.</span>output <span style="color: #990000">-&gt;</span> 'b <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span><span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span>
   'o <span style="font-weight: bold"><span style="color: #000080">BatInnerIO</span></span><span style="color: #990000">.</span>output <span style="color: #990000">-&gt;</span>
   <span style="color: #990000">(</span>'b <span style="color: #990000">*</span> stream<span style="color: #990000">,</span> 'b failure<span style="color: #990000">)</span> result <span style="color: #990000">-&gt;</span> <span style="color: #009900">unit</span></tt></pre></div></div>
+</div>
+<div class="sect2">
+<h3 id="_simple_string_scanners">8.4. Simple string scanners</h3>
+<div class="paragraph"><p>Thanks to the <code>stream_of_string</code> function we can also devise a very simple to
+use <code>of_string</code> function for any parser, that would come handy for testing
+or other simple circumstances.</p></div>
+<div class="listingblock">
+<div class="title">Parser library: printers</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">let</span></span> of_string p str <span style="color: #990000">=</span>
+  <span style="font-weight: bold"><span style="color: #0000FF">let</span></span> s <span style="color: #990000">=</span> stream_of_string str <span style="font-weight: bold"><span style="color: #0000FF">in</span></span>
+  ct_bind
+    <span style="color: #990000">((</span>p <span style="color: #990000">+-</span> eof<span style="color: #990000">)</span> <span style="color: #990000">[]</span> <span style="color: #009900">None</span> no_error_correction s <span style="color: #990000">|&gt;</span> to_result<span style="color: #990000">)</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
+    <span style="color: #990000">|</span> <span style="color: #009900">Bad</span> e <span style="color: #990000">-&gt;</span> ct_return <span style="color: #990000">(</span><span style="color: #009900">Bad</span> e<span style="color: #990000">)</span>
+    <span style="color: #990000">|</span> <span style="color: #009900">Ok</span> <span style="color: #990000">(</span>res<span style="color: #990000">,</span> _rest<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span> ct_return <span style="color: #990000">(</span><span style="color: #009900">Ok</span> res<span style="color: #990000">))</span></tt></pre></div></div>
+<div class="paragraph"><p>Notice that since we force the parser to reach the end of string we can discard
+from the result the unparsed rest of the stream, which will always be empty.</p></div>
+<div class="paragraph"><p>Simplifying further, this exception throwing variant will just return the
+result without further ado. Notice that, for the sake of simplicity we don&#8217;t
+force a <code>print_output</code> argument so the error report will not be as detailed as
+the one given by <code>print_result</code>:</p></div>
+<div class="listingblock">
+<div class="title">Parser library: printers</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">exception</span></span> <span style="color: #009900">ParseError</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> <span style="color: #009900">string</span>
+
+<span style="font-weight: bold"><span style="color: #0000FF">let</span></span> of_string_exn p str <span style="color: #990000">=</span>
+  ct_bind <span style="color: #990000">(</span>of_string p str<span style="color: #990000">)</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #0000FF">function</span></span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">Approximation</span> _<span style="color: #990000">)</span> <span style="color: #990000">-&gt;</span> raise <span style="color: #990000">(</span><span style="color: #009900">ParseError</span> <span style="color: #FF0000">"Approximate result"</span><span style="color: #990000">)</span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">Ambiguous</span> _<span style="color: #990000">)</span>     <span style="color: #990000">-&gt;</span> raise <span style="color: #990000">(</span><span style="color: #009900">ParseError</span> <span style="color: #FF0000">"Ambiguous result"</span><span style="color: #990000">)</span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Bad</span> <span style="color: #990000">(</span><span style="color: #009900">NoSolution</span> e<span style="color: #990000">)</span>    <span style="color: #990000">-&gt;</span> raise <span style="color: #990000">(</span><span style="color: #009900">ParseError</span> <span style="color: #990000">(</span><span style="font-weight: bold"><span style="color: #000080">IO</span></span><span style="color: #990000">.</span>to_string print_error e<span style="color: #990000">))</span>
+  <span style="color: #990000">|</span> <span style="color: #009900">Ok</span> x <span style="color: #990000">-&gt;</span> ct_return x<span style="color: #990000">)</span></tt></pre></div></div>
+<div class="listingblock">
+<div class="title">Parser signature</div>
+<div class="content"><!-- Generator: GNU source-highlight 3.1.8
+by Lorenzo Bettini
+http://www.lorenzobettini.it
+http://www.gnu.org/software/src-highlite -->
+<pre><tt><span style="font-weight: bold"><span style="color: #0000FF">exception</span></span> <span style="color: #009900">ParseError</span> <span style="font-weight: bold"><span style="color: #0000FF">of</span></span> <span style="color: #009900">string</span>
+<span style="font-weight: bold"><span style="color: #0000FF">val</span></span> of_string <span style="color: #990000">:</span> 'b t <span style="color: #990000">-&gt;</span> <span style="color: #009900">string</span> <span style="color: #990000">-&gt;</span> <span style="color: #990000">(</span>'b<span style="color: #990000">,</span> 'b failure<span style="color: #990000">)</span> result ct
+<span style="font-weight: bold"><span style="color: #0000FF">val</span></span> of_string_exn <span style="color: #990000">:</span> 'b t <span style="color: #990000">-&gt;</span> <span style="color: #009900">string</span> <span style="color: #990000">-&gt;</span> 'b ct</tt></pre></div></div>
 </div>
 </div>
 </div>
@@ -3530,7 +3579,7 @@ http://www.gnu.org/software/src-highlite -->
 <div id="footer-text">
 Version 0.1<br />
 Last updated
- 2017-07-22 19:21:54 CEST
+ 2017-07-28 18:35:32 CEST
 </div>
 </div>
 </body>
