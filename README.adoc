@@ -1272,9 +1272,10 @@ or one occurrence of +p+:
 [source,ml]
 ----
 let optional ~def p = p ||| return def
-let optional_greedy ~def p =
-  p |||
-  (check (nay p) >>: fun () -> def)
+let optional_greedy ~def p m e c s =
+  ct_bind (p m e c s) (function
+    | e', [] -> ct_return (e', [def, c, s])
+    | x -> ct_return x)
 ----
 
 The +optional_greedy+ above is to avoid considering not consuming a matching
