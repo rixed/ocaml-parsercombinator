@@ -658,6 +658,11 @@ let nay p m e c s =
 
 So that we could write +check m (nay p)+.
 
+Notice that when `nay` succeeds, ie when `p` fails, the stream of input
+tokens `s` is _not_ advanced. Indeed, we do not know of how many tokens
+to advance it (since `p` could operate on several). (Note: is `check`
+really useful then?)
+
 .Parser signature
 [source,ml]
 ----
