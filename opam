@@ -15,7 +15,7 @@ build-test: [ [make "check"] ]
 install: [make "install"]
 remove: ["ocamlfind" "remove" "parsercombinator"]
 depends: [
-  "ocamlfind"
+  "ocamlfind" {build}
   "batteries"
   "ounit" {test}
   "portia" {build & >= "1.0"}
