@@ -656,7 +656,7 @@ let nay p m e c s =
     | e', _ -> fail_or_maybe_not () m e' c s)
 ----
 
-So that we could write +check m (nay p)+.
+So that we could write +check (nay p)+.
 
 Notice that when `nay` succeeds, ie when `p` fails, the stream of input
 tokens `s` is _not_ advanced. Indeed, we do not know of how many tokens
@@ -2745,7 +2745,7 @@ end
 
 This configuration assumes that it is OK to block when reading tokens (assuming
 the parser runs in its own POSIX thread for instance). It's given as a
-configuration a mere +in_channel+ from which bytes (tokens) will be read. 
+configuration a mere +in_channel+ from which bytes (tokens) will be read.
 
 .ParsersConfig.ml: Reading a file using normal blocking Unix read
 [source,ml]
@@ -2833,7 +2833,7 @@ therefore works only with streams of characters:
 
 TODO:
 1. Parsers.CONFIG should have a function to turn a string into a stream.
-2. We should have a user-manual or a few simple easy functor for the end users.   
+2. We should have a user-manual or a few simple easy functor for the end users.
 
 .ParsersPositions.ml: pairing a line number and column number with every characters
 [source,ml]
