@@ -2863,11 +2863,11 @@ struct
     ct_bind (Conf.take stream) (function
       | Item (_, tok), stream' ->
         let line', col' =
-          if tok = '\n' then (line+1, 0)
+          if tok = '\n' then (line+1, 1)
           else (line, col+1) in
         ct_return (Item ((line, col), tok), (stream', line', col'))
       | EndOfStream, stream' ->
         ct_return (EndOfStream, (stream', line, col)))
-  let stream_of_string str = Conf.stream_of_string str, 0, 0
+  let stream_of_string str = Conf.stream_of_string str, 1, 1
 end
 ----
