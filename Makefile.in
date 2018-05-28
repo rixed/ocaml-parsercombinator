@@ -16,10 +16,11 @@ GEN_SOURCES = \
 
 GEN_FILES = $(GEN_SOURCES) README.html
 
-REQUIRES = batteries oUnit lwt.ppx
+REQUIRES = batteries lwt.ppx
 
 .PHONY: all distclean clean clear loc doc wc install uninstall reinstall dep check unit-tests
-all: $(ARCHIVES) $(XARCHIVES) README.annot
+# Do not depends on README.annot so that we do not need to compile test.ml (which requires ounit)
+all: $(ARCHIVES) $(XARCHIVES)
 
 # Do not depend on $(GEN_SOURCES:.ml=.cmo) so that we get the .annot file
 # even when some file does not compile.
@@ -53,9 +54,10 @@ unit-tests: test.opt
 check: unit-tests
 
 test.cmx: $(XARCHIVES)
+	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES) oUnit" $(OCAMLOPTFLAGS) -c $<
 
 test.opt: test.cmx $(XARCHIVES)
-	$(OCAMLOPT) -o $@ -package "$(REQUIRES)" -ccopt -L$(top_srcdir) $(XARCHIVES) -linkpkg $(OCAMLOPTFLAGS) $^
+	$(OCAMLOPT) -o $@ -package "$(REQUIRES) oUnit" -ccopt -L$(top_srcdir) $(XARCHIVES) -linkpkg $(OCAMLOPTFLAGS) $^
 
 clean:
 	$(RM) *.cm[ioxa] *.cmxa *.cmxs *.a *.s *.o test.* .depend *.annot $(GEN_FILES)
