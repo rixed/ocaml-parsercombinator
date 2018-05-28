@@ -19,7 +19,8 @@ GEN_FILES = $(GEN_SOURCES) README.html
 REQUIRES = batteries lwt.ppx
 
 .PHONY: all distclean clean clear loc doc wc install uninstall reinstall dep check unit-tests
-all: $(ARCHIVES) $(XARCHIVES) README.annot
+# Do not depends on README.annot so that we do not need to compile test.ml (which requires ounit)
+all: $(ARCHIVES) $(XARCHIVES)
 
 # Do not depend on $(GEN_SOURCES:.ml=.cmo) so that we get the .annot file
 # even when some file does not compile.
