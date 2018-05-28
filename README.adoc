@@ -2117,7 +2117,7 @@ We have made +num_of_char+ accept hexadecimal digits in foresight.
 Octals, hexadecimal and binary numbers are then build similarly: a mandatory
 prefix, and some digits interleaved with underscores. Notice that only the
 prefix is mandatory and '0x' for instance is a valid immediate (representing
-zero of course), as in perl.
+zero of course), as in the Perl language.
 
 .usual parsers: non decimal integers
 [source,ml]
