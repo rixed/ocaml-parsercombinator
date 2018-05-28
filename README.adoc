@@ -2203,7 +2203,7 @@ let integer m =
 "not decimal number immediate" >:: (
   fun _ctx ->
     [ "0_" ; "0X_" ; "_123" ; "123_" ; "12__34" ; "_" ; "_0x123" ;
-      "-0_" ; "-_42" ] |>
+      "-0_" ; "-_42" ; "+" ; "-" ; "" ] |>
     List.iter (fun input ->
       assert_same_results Num.print
         (None, [])
