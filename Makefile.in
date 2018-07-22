@@ -53,8 +53,8 @@ unit-tests: test.opt
 	@./test.opt
 check: unit-tests
 
-test.cmx: $(XARCHIVES)
-	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES) oUnit" $(OCAMLOPTFLAGS) -c $<
+test.cmx: test.ml $(XARCHIVES)
+	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES) oUnit" $(OCAMLOPTFLAGS) -c $< -o $@
 
 test.opt: test.cmx $(XARCHIVES)
 	$(OCAMLOPT) -o $@ -package "$(REQUIRES) oUnit" -ccopt -L$(top_srcdir) $(XARCHIVES) -linkpkg $(OCAMLOPTFLAGS) $^
