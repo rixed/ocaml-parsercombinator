@@ -2017,25 +2017,37 @@ One often wants to parse string literals (represented as C-like quoted strings):
 .usual parsers: quoted strings
 [source,ml]
 ----
-let quoted_char ?(what="character") =
-  (char ~what:"escape sequence" '\\' -+
-   (* TODO: numercial escape sequences *)
-   anything ~what:"escaped character" >>: function
-     | 'n' -> '\n'
-     | 'r' -> '\r'
-     | 'b' -> '\b'
-     | 't' -> '\t'
-     | '\\' -> '\\'
-     | '"' -> '"'
-     | '\'' -> '\''
-     | c -> c) |||
+let quoted_char ?(base_num=8) ?(what="character") =
+  let digit = cond_map "digit" (fun c ->
+    let check n = if n >= 0 && n < base_num then Some n else None in
+    if c >= '0' && c <= '9' then check (Char.code c - Char.code '0') else
+    if c >= 'a' && c <= 'z' then check (10 + Char.code c - Char.code 'a') else
+    if c >= 'A' && c <= 'Z' then check (10 + Char.code c - Char.code 'A') else
+    None) 0
+  in
+  char ~what:"escape sequence" '\\' -+
+    ((cond_map "escaped character" (function
+     | 'n' -> Some '\n'  | 'r' -> Some '\r'  | 'b' -> Some '\b'
+     | 't' -> Some '\t'  | '\\' -> Some '\\' | '"' -> Some '"'
+     | '\'' -> Some '\''
+     | c when c < '0' || c > '9' -> Some c
+     | _ -> None) 'n') |||
+    ((* numeric escape sequence of 3 digits in base base_num: *)
+     repeat ~sep:none ~what:"numeric escape sequence" ~min:3 ~max:3 digit >>:
+       fun lst ->
+         let n =
+           List.fold_left (fun s c -> s * base_num + c) 0 lst in
+         Char.chr n)) |||
   cond what (fun c -> c <> '\\' && c <> '"') 'x'
 
-let quoted_string =
+let quoted_string ?base_num =
   char ~what:"opening quote" '"' -+
-  repeat_greedy ~sep:none ~what:"a quoted string" quoted_char +-
+  repeat_greedy ~sep:none ~what:"a quoted string" (quoted_char ?base_num) +-
   char ~what:"closing quote" '"' >>: String.of_list
 ----
+
+Notice that if the base for the numeric escape sequence is greater than 10 we
+cannot be sure any longer how to parse "\b" for instance.
 
 Another usual offender is parsing C like identifiers (aka any words made of characters,
 numbers or underscore but not starting by a number):
