@@ -1377,10 +1377,16 @@ let repeat ~sep ?(min=0) ?max ?(what="repeating") p m =
         (* we may stop here or continue *)
         (optional ~def:[] (loop ~min:1 ?max)) m e c s
       | 1 ->
-        (* at least one more, everything else optional *)
-        ((p ++ optional ~def:[]
-                   (sep -+ (loop ~min:1 ?max:pred_ma))) >>:
-          fun (x, xs) -> x::xs) m e c s
+        (* If max is greater or unset, we want at least one more and
+           keep trying. But if max is also 1 then we just want one more
+           and there is no point looking further; which may avoid to block
+           to another block in some settings: *)
+        (
+          if pred_ma = Some 0 then p >>: fun x -> [x]
+          else (p ++ optional ~def:[]
+                       (sep -+ (loop ~min:1 ?max:pred_ma))) >>:
+                fun (x, xs) -> x::xs
+        ) m e c s
       | _ ->
         (* above that, repetition is mandatory *)
         ((p +- sep ++ loop ~min:(min-1) ?max:pred_ma) >>:
