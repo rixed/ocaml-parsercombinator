@@ -8,5 +8,5 @@ archive(native) = "parsercombinator.cmxa"
 package "lwt" (
   archive(byte) = "parsercombinator-lwt.cma"
   archive(native) = "parsercombinator-lwt.cmxa"
-  requires = "lwt.unix lwt.ppx"
+  requires = "lwt.unix lwt_ppx"
 )

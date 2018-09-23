@@ -20,6 +20,7 @@ depends: [
   "ounit" {test}
   "portia" {build & >= "1.0"}
   "lwt"
+  "lwt_ppx"
 ]
 depexts: [
   [["debian"] ["asciidoc"]]
