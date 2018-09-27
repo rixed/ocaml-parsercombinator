@@ -2792,7 +2792,8 @@ struct
   let read_buf channel =
     let max_len = 1024 in
     let buf = Bytes.create max_len in
-    let r = Unix.read channel buf 0 max_len in
+    let r =
+      Unix.(restart_on_EINTR (read channel buf 0) max_len) in
     if r = 0 then None
     else Some (buf, 0, r)
 end
