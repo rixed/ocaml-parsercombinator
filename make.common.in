@@ -1,6 +1,6 @@
 # vim:filetype=make
-OCAMLC     = @OCAMLFIND@ ocamlc
-OCAMLOPT   = @OCAMLFIND@ ocamlopt
+OCAMLC     = @OCAMLFIND@ ocamlc -thread
+OCAMLOPT   = @OCAMLFIND@ ocamlopt -thread
 OCAMLDEP   = @OCAMLFIND@ ocamldep
 OCAMLDOC   = @OCAMLFIND@ ocamldoc -html -colorize-code -all-params
 OCAMLMKTOP = @OCAMLFIND@ ocamlmktop -g
