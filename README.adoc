@@ -1222,7 +1222,7 @@ around. If this is wanted though then it is easy enough to write:
 [source,ml]
 ----
 let either p1 p2 =
-  (check (nay p2) -+ p1) ||| (check (nay p1) -+ p2)
+  (nay p2 -+ p1) ||| (nay p1 -+ p2)
 
 let (|/|) = either
 ----
@@ -1450,7 +1450,7 @@ swallows as many +p+ occurrences as present in the input stream) using check:
 [source,ml]
 ----
 let repeat_greedy ~sep ?min ?max ?what p =
-  repeat ~sep ?min ?max ?what p +- check (nay (sep -+ p))
+  repeat ~sep ?min ?max ?what p +- nay (sep -+ p)
 ----
 
 ...which unfortunately fails for +min=0+ because of the separator.  We have to
@@ -1464,11 +1464,10 @@ let rec repeat_greedy ~sep ?min ?max ?what p =
   match min with
   | None | Some 0 ->
     repeat_greedy ~sep ~min:1 ?max ?what p |||
-    (check (nay p) >>: fun () -> [])
+    (nay p >>: fun () -> [])
   | min ->
     repeat ~sep ?min ?max ?what p +-
-    (check (nay (sep -+ p)) >>:
-    fun _ -> [])
+    (nay (sep -- p) >>: fun () -> [])
 ----
 
 .Parser signature
