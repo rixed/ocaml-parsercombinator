@@ -2105,7 +2105,8 @@ let unsigned_decimal_number ?what ?(inc_zero=true) m =
   let digits m = several ~sep:none decimal_digit m in
   ((if inc_zero then decimal_digit else non_zero_decimal_digit) +-
    optional ~def:' ' underscore ++
-   optional ~def:[] (several ~sep:underscore digits) >>:
+   optional ~def:[] (several ~sep:underscore digits) +-
+   nay decimal_digit >>:
    fun (first, next) ->
    List.fold_left (fun c digits ->
      List.fold_left (fun c digit ->
@@ -2142,7 +2143,7 @@ zero of course), as in the Perl language.
 ----
 let non_decimal_integer base prefix digit =
   let base = Num.num_of_int base in
-  let digits m = several ~sep:none digit m in
+  let digits m = several_greedy ~sep:none digit m in
   prefix -+ repeat ~sep:underscore ~what:"digits" digits >>:
      List.fold_left (fun c digits ->
        List.fold_left (fun c digit ->
