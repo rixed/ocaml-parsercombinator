@@ -1796,7 +1796,7 @@ With all this we can print errors and results:
 [source,ml]
 ----
 let print_postok fmt (pos, tok) =
-  Printf.fprintf fmt "%a (near %a)"
+  Printf.fprintf fmt "%a (near '%a')"
     print_position pos
     print_token tok
 
