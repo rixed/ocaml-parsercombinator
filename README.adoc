@@ -2023,26 +2023,34 @@ One often wants to parse string literals (represented as C-like quoted strings):
 [source,ml]
 ----
 let quoted_char ?(base_num=8) ?(what="character") =
-  let digit = cond_map "digit" (fun c ->
+  let digit base_num = cond_map "digit" (fun c ->
     let check n = if n >= 0 && n < base_num then Some n else None in
     if c >= '0' && c <= '9' then check (Char.code c - Char.code '0') else
     if c >= 'a' && c <= 'z' then check (10 + Char.code c - Char.code 'a') else
     if c >= 'A' && c <= 'Z' then check (10 + Char.code c - Char.code 'A') else
-    None) 0
+    None) 0 in
+  let hexdigit = digit 16 and digit = digit base_num
   in
   char ~what:"escape sequence" '\\' -+
     ((cond_map "escaped character" (function
      | 'n' -> Some '\n'  | 'r' -> Some '\r'  | 'b' -> Some '\b'
      | 't' -> Some '\t'  | '\\' -> Some '\\' | '"' -> Some '"'
      | '\'' -> Some '\''
-     | c when c < '0' || c > '9' -> Some c
+     | c when (c < '0' || c > '9') && c <> 'x' -> Some c
      | _ -> None) 'n') |||
     ((* numeric escape sequence of 3 digits in base base_num: *)
      repeat ~sep:none ~what:"numeric escape sequence" ~min:3 ~max:3 digit >>:
        fun lst ->
          let n =
            List.fold_left (fun s c -> s * base_num + c) 0 lst in
-         Char.chr n)) |||
+         Char.chr n) |||
+    ((* hexanumeric escape sequence: *)
+     char ~what:"x" 'x' -+
+     repeat ~sep:none ~what:"hexanumeric escape sequence" ~min:2 ~max:2 hexdigit >>:
+       fun lst ->
+        let n =
+          List.fold_left (fun s c -> s * 16 + c) 0 lst in
+        Char.chr n)) |||
   cond what (fun c -> c <> '\\' && c <> '"') 'x'
 
 let quoted_string ?base_num =
@@ -2053,6 +2061,22 @@ let quoted_string ?base_num =
 
 Notice that if the base for the numeric escape sequence is greater than 10 we
 cannot be sure any longer how to parse "\b" for instance.
+
+With some tests for good measure:
+
+.tests
+[source,ml]
+----
+"quoted strings" >:: (
+  fun _ctx ->
+    [ "\"abc\"", "abc" ;
+      "\"\\x61\\x62\\x63\"", "abc" ] |>
+    List.iter (fun (input, output) ->
+      assert_same_results String.print
+        (None, [output, no_corr, (String.length input, [])])
+        ((quoted_string +- eof) [] None no_corr (stream_of_string input)))
+) ;
+----
 
 Another usual offender is parsing C like identifiers (aka any words made of characters,
 numbers or underscore but not starting by a number):
