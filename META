@@ -1,5 +1,5 @@
 description = "Resumable combinatoric parser with error detection"
-version = "0.6"
+version = "0.7"
 
 requires = "batteries"
 archive(byte) = "parsercombinator.cma"

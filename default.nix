@@ -2,7 +2,7 @@
 
 stdenv.mkDerivation rec {
   pname = "ocaml${ocaml.version}-parsercombinator";
-  version = "0.6";
+  version = "0.7";
 
   src = fetchFromGitHub {
     owner = "rixed";

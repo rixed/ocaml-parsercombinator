@@ -1,6 +1,6 @@
 opam-version: "1.2"
 name: "parsercombinator"
-version: "0.6"
+version: "0.7"
 maintainer: "rixed@free.fr"
 authors: "rixed@free.fr"
 bug-reports: "https://github.com/rixed/ocaml-parsercombinator/issues"
