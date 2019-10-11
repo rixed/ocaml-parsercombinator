@@ -33,7 +33,7 @@ $(GEN_SOURCES): README.adoc
 include $(top_srcdir)/make.common
 
 parsercombinator.cma: $(patsubst %.mli,%.cmo,$(filter %.mli, $(GEN_ARC_SOURCES))) $(patsubst %.ml,%.cmo,$(filter %.ml, $(GEN_ARC_SOURCES)))
-	$(OCAMLC)   -a -o $@ -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $(patsubst %.ml,%.cmo,$(filter %.ml, $(GEN_ARC_SOURCES)))
+	$(OCAMLC)   -a -o $@ -package "$(REQUIRES)" $(OCAMLFLAGS) $(patsubst %.ml,%.cmo,$(filter %.ml, $(GEN_ARC_SOURCES)))
 parsercombinator.cmxa: $(patsubst %.mli,%.cmi,$(filter %.mli, $(GEN_ARC_SOURCES))) $(patsubst %.ml,%.cmx,$(filter %.ml, $(GEN_ARC_SOURCES)))
 	$(OCAMLOPT) -a -o $@ -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $(patsubst %.ml,%.cmx,$(filter %.ml, $(GEN_ARC_SOURCES)))
 
@@ -44,7 +44,7 @@ ParsersLwtConfig.cmo: parsercombinator.cma ParsersLwtConfig.ml
 	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $^
 
 parsercombinator-lwt.cma: ParsersLwtConfig.cmo
-	$(OCAMLC)   -a -o $@ -package "$(REQUIRES)" -custom -linkpkg $(OCAMLFLAGS) $^
+	$(OCAMLC)   -a -o $@ -package "$(REQUIRES)" $(OCAMLFLAGS) $^
 parsercombinator-lwt.cmxa: ParsersLwtConfig.cmx
 	$(OCAMLOPT) -a -o $@ -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $^
 
