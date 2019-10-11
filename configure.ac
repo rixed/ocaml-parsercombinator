@@ -15,5 +15,5 @@ fi
 
 AC_CHECK_OCAML_PKG(batteries portia lwt)
 
-AC_CONFIG_FILES([Makefile make.common])
+AC_CONFIG_FILES([Makefile make.common opam])
 AC_OUTPUT

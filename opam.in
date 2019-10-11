@@ -1,24 +1,25 @@
-opam-version: "1.2"
+opam-version: "2.0"
 name: "parsercombinator"
-version: "0.7"
+version: "@PACKAGE_VERSION@"
+synopsis: "Resumable combinatoric parser with error detection"
 maintainer: "rixed@free.fr"
 authors: "rixed@free.fr"
 bug-reports: "https://github.com/rixed/ocaml-parsercombinator/issues"
-dev-repo: "https://github.com/rixed/ocaml-parsercombinator.git"
+dev-repo: "git+https://github.com/rixed/ocaml-parsercombinator.git"
 doc: "http://rixed.github.io/ocaml-parsercombinator/"
 homepage: "https://github.com/rixed/ocaml-parsercombinator/"
 build: [
   ["./configure" "--prefix=%{prefix}%"]
   [make]
+  [make "doc"] {with-doc}
+  [make "check"] {with-test}
 ]
-build-doc: [ [make "doc"] ]
-build-test: [ [make "check"] ]
 install: [make "install"]
 remove: ["ocamlfind" "remove" "parsercombinator"]
 depends: [
   "ocamlfind" {build}
-  "batteries"
-  "ounit" {test}
+  "batteries" {>= "2.10.0"}
+  "ounit" {with-test}
   "portia" {build & >= "1.0"}
   "lwt"
   "lwt_ppx"

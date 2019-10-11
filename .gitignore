@@ -33,3 +33,4 @@ ParsersLwtConfig.ml
 ParsersConfig.ml
 README.html
 helpers.cache
+opam
