@@ -2,13 +2,13 @@
 
 stdenv.mkDerivation rec {
   pname = "ocaml${ocaml.version}-parsercombinator";
-  version = "0.7";
+  version = "0.8";
 
   src = fetchFromGitHub {
     owner = "rixed";
     repo = "ocaml-parsercombinator";
     rev = "v${version}";
-    sha256 = "1h2djnkdxmfdl27q5k3055bss4d62h6yrr151z1v7kq90rz5xfcv";
+    sha256 = "0154zbp29ndkjv4x1xlaxvdmc73vf1253z59hxab2j1h40bsci4q";
   };
 
   buildInputs = [ ocaml findlib num batteries lwt_ppx portia ];
