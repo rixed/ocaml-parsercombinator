@@ -1193,13 +1193,42 @@ Now let's test that we can indeed sequence parsers:
 
 The next most useful combinator is the alternative:
 
-.Parser library: alternative
+.The alternative, take 1
 [source,ml]
 ----
 let oneof p1 p2 m e c s =
   ct_bind (p1 m e c s) (fun (e', r) ->
     ct_bind (p2 m e' c s) (fun (e'', r') ->
       ct_return (e'', List.rev_append r r')))
+----
+
+...which simply try each parser in turn, accumulate the best error and combine
+the possible results.
+
+There is a small inconvenience here: if both terms of the alternative +p1+ and
++p2+ failed right from the start, then the resulting error will be about +p2+.
+It is probably more insightful in this case to report that the +oneof+ itself
+failed.
+
+To obtain this behavior an additional error for the alternative itself can be
+registered for the starting position and it will overwrite the best error +e''+
+if it's also located there.
+
+If either +p1+ or +p2+ managed to parse even a tiny bit of +s+ then it will
+still be favored in the error report, which might or not be good depending on
+how _likely_ this parser fails late on random data.
+
+.Parser library: alternative
+[source,ml]
+----
+let oneof p1 p2 m e c s =
+  ct_bind (p1 m e c s) (fun (e', r) ->
+    ct_bind (p2 m e' c s) (fun (e'', r') ->
+      ct_bind (take s) (fun (pt, _s') ->
+        let r'' = List.rev_append r r' in
+        let e''' = if r'' = [] then new_error pt m e''
+                               else e'' in
+        ct_return (e''', r''))))
 
 let (|||) = oneof
 ----
@@ -1241,7 +1270,9 @@ With sequences and alternatives we can start writing some interesting tests:
 ----
 "any: 'a' or 'b' but not 'z'" >:: (
   fun _ctx ->
-    let a_or_b = item 'a' ||| item 'b' in
+    let a_or_b m =
+      let m = "a or b" :: m in
+      (item 'a' ||| item 'b') m in
     let z = stream_of_string "z" in
     assert_same_results Char.print
       (None, ['a', no_corr, (1,[])])
@@ -1250,7 +1281,7 @@ With sequences and alternatives we can start writing some interesting tests:
       (None, ['b', no_corr, (1,[])])
       (a_or_b [] None no_corr (stream_of_string "b")) ;
     assert_same_results Char.print
-      (Some { what = ["b"] ;
+      (Some { what = ["a or b"] ;
               where = Item (0, 'z') }, [])
       (a_or_b [] None no_corr z) ;
     (* Here we try with corrections: we make up the requested item
