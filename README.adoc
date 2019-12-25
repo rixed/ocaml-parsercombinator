@@ -1381,8 +1381,8 @@ cut down on the many +optional (repeat p)+ that we would have otherwise.
 .Parser library: repetition of a parser
 [source,ml]
 ----
-let repeat ~sep ?(min=0) ?max ?(what="repeating") p m =
-  let m = what::m in
+let repeat ~sep ?(min=0) ?max ?what p m =
+  let m = match what with None -> m | Some w -> w::m in
   let rec loop ~min ?max m e c s =
     if max = Some 0 then (
       if min = 0 then return [] m e c s
@@ -1853,15 +1853,22 @@ With all this we can print errors and results:
 .Parser library: printers
 [source,ml]
 ----
-let print_error_context fmt = function
+let print_error_context fmt =
+  let cannot_find fmt = function
+    | "eof" -> String.print fmt "Was expecting end-of-file"
+    | s -> Printf.fprintf fmt "Cannot find %s" s in
+  function
   | [] ->
     String.print fmt "No context known. This is bad. Good luck!"
   | [x] ->
-    Printf.fprintf fmt "Cannot find %s" x
-  | x::rest ->
-    let sep = " while looking for " in
-    Printf.fprintf fmt "Cannot find %s%a" x
-      (List.print ~first:sep ~last:"" ~sep String.print) rest
+    cannot_find fmt x
+  | [x; rest] ->
+    Printf.fprintf fmt "%a while looking for %s"
+      cannot_find x rest
+  | x :: next :: rest ->
+    Printf.fprintf fmt "%a while looking for %s %a"
+      cannot_find x next
+      (List.print ~first:"(in " ~last:")" ~sep:" in " String.print) rest
 
 let print_error fmt = function
   | None -> Printf.fprintf fmt "Ok"
