@@ -325,15 +325,13 @@ it's probably better to leave it open to the user. Let's therefore assume that
 both tokens and positions are read from the input stream.
 
 In addition to the location a mere description of the parser that we forced
-to succeed (as a string) completes the +ParsersCorrection.t+. For the position
-we conveniently reuse the stream output as it can already encode both the
-position and the special +EOF+ position:
+to succeed (as a string) completes the +ParsersCorrection.t+:
 
 .ParsersCorrections.ml: type
 [source,ml]
 ----
 open ParsersMisc
-type 'c t = ('c stream_item * string) ParsersBoundedSet.t
+type ('pos, 'tok) t = ('pos * 'tok stream_item * string) ParsersBoundedSet.t
 ----
 
 where +ParsersBoundedSet+ is an unordered container with a maximum capacity (the
@@ -346,8 +344,8 @@ message +m+:
 .ParsersCorrections.ml: recording a change
 [source,ml]
 ----
-let change_at c postok m =
-  ParsersBoundedSet.add c (postok, List.hd m)
+let change_at c pos tok m =
+  ParsersBoundedSet.add c (pos, tok, List.hd m)
 ----
 
 Now that we know what corrections look like and that we have to read the
@@ -359,7 +357,7 @@ type for the parser:
 [source,ml]
 ----
 type 'b possible_result =
-  'b * ((position * token) ParsersCorrections.t) * stream
+  'b * ((position, token) ParsersCorrections.t) * stream
 type 'b t =
   (position * token) ParsersCorrections.t -> stream ->
   'b possible_result list ct
@@ -374,7 +372,7 @@ have the final type for +stream+/+take+:
 (* ...threading types... *)
 type position
 type stream
-val take : stream -> ((position * token) ParsersMisc.stream_item * stream) ct
+val take : stream -> (position * token ParsersMisc.stream_item * stream) ct
 ----
 
 .parser public type constraints
@@ -393,23 +391,25 @@ an aggregated value containing the "best" error found.
 
 What we call the "best" error is the error that caused the parser to give up
 (return +[]+) the later in the input stream, measured by the position of the
-token. We thus need another function from the configuration:
+token. We thus need a comparison function between two positions. We could have
+a minimally informative +greater_than : position -> position -> bool+ function,
+but it will be later convenient to have an idea of the actual (oriented)
+distance between any two positions, to let's rather define:
 
 .Parser configuration: comparator for positions
 [source,ml]
 ----
-val cmp_position : position -> position -> int
+val distance : position -> position -> int
 ----
 
-An error is made of the location in the stream where the parsing stopped and
-the stack of things the parser was trying to build:
+An error is composed of the location in the stream where the parsing stopped
+and the stack of things the parser was trying to build:
 
 .error type:
 [source,ml]
 ----
 type error =
-  { where : (position * token) ParsersMisc.stream_item ;
-    what : string list }
+  { where : position ; what : string list }
 ----
 
 We can update the current best error from another stream item and stack of
@@ -418,17 +418,14 @@ messages with this simple function:
 .keeping track of the best error
 [source,ml]
 ----
-let new_error pt m = function
-  | None -> Some { where = pt ; what = m }
-  | Some err as e -> (
-    let open ParsersMisc in
-    match pt, err.where with
-    | EndOfStream, _ ->
-      Some { where = pt ; what = m }
-    | Item (pos, _), Item (best_pos, _)
-      when cmp_position pos best_pos >= 0 ->
-      Some { where = pt ; what = m }
-    | _ -> e)
+let new_error where what = function
+  | None ->
+    Some { where ; what }
+  | Some err as e ->
+    if distance err.where where >= 0 then
+      Some { where ; what }
+    else
+      e
 ----
 
 With the idea that a stack of messages describing the context is maintained
@@ -444,11 +441,11 @@ So that the new (and final) type for parsers expands to:
 (* ...error type... *)
 
 type 'b possible_result =
-  'b * ((position * token) ParsersCorrections.t) * stream
+  'b * ((position, token) ParsersCorrections.t) * stream
 
 type 'b t =
   string list -> error option ->
-  (position * token) ParsersCorrections.t -> stream ->
+  (position, token) ParsersCorrections.t -> stream ->
   (error option * 'b possible_result list) ct
 ----
 
@@ -513,8 +510,8 @@ with:
 [source,ml]
 ----
 type 'b failure =
-  | Approximation of ('b * (position * token) ParsersCorrections.t * stream)
-  | Ambiguous of ('b * (position * token) ParsersCorrections.t * stream) list
+  | Approximation of ('b * (position, token) ParsersCorrections.t * stream)
+  | Ambiguous of ('b * (position, token) ParsersCorrections.t * stream) list
   | NoSolution of error option
 ----
 
@@ -543,16 +540,15 @@ struct
   type token = Token.t
   let print_token = Token.print
   type position = int
-  let cmp_position = Int.compare
+  let distance p1 p2 = p2 - p1
   let print_position fmt p =
     Printf.fprintf fmt "offset %d" p
   type stream = position * token list
-  let print_stream fmt (_, s) = List.print (fun fmt t ->
-    Printf.fprintf fmt "%a" print_token t) fmt s
-  let current_position (ofs, _) = ofs
+  let print_stream fmt (_, s) =
+    List.print print_token fmt s
   let take = function
-    | (_, []) as s -> EndOfStream, s
-    | ofs, (x::rest) -> Item (ofs, x), (ofs+1, rest)
+    | (pos, []) as s -> pos, EndOfStream, s
+    | pos, (x::rest) -> pos, Item x, (pos+1, rest)
   let ct_return x = x
   let ct_bind x f = f x
   (* ...other SimpleConfig definitions... *)
@@ -602,18 +598,19 @@ exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
 open ParsersCorrections
 
 let fail_or_maybe_not x (* <1> *) m e c s =
-  ct_bind (take s) (fun (pt, _s') ->
-    if ParsersBoundedSet.is_full c then (
-      (* no more errors permitted so fail for real *)
-      fail m (new_error pt m e) c s
-    ) else (
-      (* Here we insert x in the stream ;
-         Shall we also try to replace postok with x?
-         In any case beware than s maybe end_of_stream.
-         TODO: two types of correction: replace and insert *)
-      (* Note that corrections still count as errors because there is no
-         guarantee that we will keep track of them: *)
-      return x m (new_error pt m e) (change_at c pt m) s))
+  if ParsersBoundedSet.is_full c then (
+    (* no more errors permitted so fail for real *)
+    ct_bind (take s) (fun (pos, _, _) ->
+      fail m (new_error pos m e) c s)
+  ) else (
+    (* Here we insert x in the stream ;
+       Shall we also try to replace pos_tok with x?
+       In any case beware than s maybe end_of_stream.
+       TODO: two types of correction: replace and insert *)
+    (* Note that corrections still count as errors because there is no
+       guarantee that we will keep track of them: *)
+    ct_bind (take s) (fun (pos, tok, _) ->
+      return x m (new_error pos m e) (change_at c pos tok m) s))
 ----
 
 <1> Here we need an example value +x+ of type β in order to change the outcome
@@ -714,9 +711,9 @@ open P
 let max_changes = 3
 let corr = ParsersBoundedSet.make max_changes
 (* TODO: two types of correction: replace and insert *)
-let correction_at postok m =
+let correction_at pos tok m =
   let c = ParsersBoundedSet.make max_changes in
-  change_at c postok [ m ]
+  change_at c pos tok [ m ]
 
 let no_corr = Parsers.no_error_correction
 let rest = stream_of_string "glop glop pas glop"
@@ -846,10 +843,10 @@ open ParsersMisc
 let eof m e c s =
   let m = "eof"::m in
   ct_bind (take s) (function
-    | EndOfStream, s' ->
+    | _, EndOfStream, s' ->
       return () m e c s'
-    | pt, _s' ->
-      fail m (new_error pt m e) c s)
+    | pos, _, _ ->
+      fail m (new_error pos m e) c s)
 ----
 
 .Parser signature
@@ -872,16 +869,14 @@ And the accompanying tests:
 "eof fails" >:: (
   fun _ctx ->
     assert_same_results Unit.print
-      (Some { where = Item (0, 'g') ;
-              what = ["eof"] }, [])
+      (Some { where = 0 ; what = ["eof"] }, [])
       (eof [] None no_corr rest)
 ) ;
 (*
 "eof suggests truncation" >:: (
   fun _ctx ->
     assert_same_results Unit.print
-      (None, [(), correction_at (Item (0, 'g'))
-                  "eof", (18,[]) ])
+      (None, [(), correction_at 0 (Item 'g') "eof", (18,[]) ])
       (eof [] None corr rest)
 ) ;
 *)
@@ -905,7 +900,7 @@ Now that we know the type, writing the code is rather easy:
 let cond expl f x m e c s =
   let m = expl::m in
   ct_bind (take s) (function
-    | Item (_pos, tok), s' when f tok ->
+    | _pos, Item tok, s' when f tok ->
       return tok m e c s'
     | _ ->
       fail_or_maybe_not x m e c s)
@@ -926,9 +921,9 @@ boolean:
 let cond_map expl f x m e c s =
   let m = expl::m in
   ct_bind (take s) (function
-    | EndOfStream, _ ->
+    | _pos, EndOfStream, _ ->
       fail_or_maybe_not x m e c s
-    | Item (_pos, tok), s' ->
+    | _pos, Item tok, s' ->
       (match f tok with
        | Some v -> return v m e c s'
        | None   -> fail_or_maybe_not x m e c s))
@@ -990,24 +985,21 @@ val range : token -> token -> string -> token t
 "item canonical failure" >:: (
   fun _ctx ->
     assert_same_results Char.print
-      (Some { what = ["X"] ;
-              where = Item (0, 'g') }, [])
+      (Some { what = ["X"] ; where = 0 }, [])
       (item 'X' [] None no_corr rest)
 ) ;
 "item fails at EOF" >:: (
   fun _ctx ->
     assert_same_results Char.print
-      (Some { what = ["g"] ;
-              where = EndOfStream }, [])
+      (Some { what = ["g"] ; where = 0 }, [])
       (item 'g' [] None no_corr no_input)
 ) ;
 "item error exploration" >:: (
   fun _ctx ->
     (* Here we 'find' the item X just because we add it. *)
     assert_same_results Char.print
-      (Some { what = ["X"] ;
-              where = Item (0, 'g') },
-       [ 'X', correction_at (Item (0, 'g')) "X",
+      (Some { what = ["X"] ; where = 0 },
+       [ 'X', correction_at 0 (Item 'g') "X",
          rest (* since we add X in front of rest *) ])
       (item 'X' [] None corr rest)
 ) ;
@@ -1054,8 +1046,8 @@ let map p f m e c s =
     match !rejection with
     | None -> ct_return (e', results')
     | Some msg ->
-      ct_bind (take s) (fun (pt, _s') ->
-        ct_return (new_error pt (msg::m) e', results')))
+      ct_bind (take s) (fun (pos, _, _) ->
+        ct_return (new_error pos (msg::m) e', results')))
 ----
 
 An infix operator makes it even more convenient:
@@ -1224,9 +1216,9 @@ how _likely_ this parser fails late on random data.
 let oneof p1 p2 m e c s =
   ct_bind (p1 m e c s) (fun (e', r) ->
     ct_bind (p2 m e' c s) (fun (e'', r') ->
-      ct_bind (take s) (fun (pt, _s') ->
+      ct_bind (take s) (fun (pos, _, _) ->
         let r'' = List.rev_append r r' in
-        let e''' = if r'' = [] then new_error pt m e''
+        let e''' = if r'' = [] then new_error pos m e''
                                else e'' in
         ct_return (e''', r''))))
 
@@ -1281,16 +1273,14 @@ With sequences and alternatives we can start writing some interesting tests:
       (None, ['b', no_corr, (1,[])])
       (a_or_b [] None no_corr (stream_of_string "b")) ;
     assert_same_results Char.print
-      (Some { what = ["a or b"] ;
-              where = Item (0, 'z') }, [])
+      (Some { what = ["a or b"] ; where = 0 }, [])
       (a_or_b [] None no_corr z) ;
     (* Here we try with corrections: we make up the requested item
        in front of the actual one (check the 2 possibilities): *)
     assert_same_results Char.print
-      (Some { what = ["b"] ;
-              where = Item (0, 'z') },
-       ['a', correction_at (Item (0, 'z')) "a", z ;
-        'b', correction_at (Item (0, 'z')) "b", z])
+      (Some { what = ["b"] ; where = 0 },
+       ['a', correction_at 0 (Item 'z') "a", z ;
+        'b', correction_at 0 (Item 'z') "b", z])
       (a_or_b [] None corr z)
 ) ;
 ----
@@ -1398,8 +1388,9 @@ let repeat ~sep ?(min=0) ?max ?(what="repeating") p m =
       if min = 0 then return [] m e c s
       (* note: if fail was taking this token itself then we could
          get away with repeating the full m e c s parameters everywhere *)
-      else ct_bind (take s) (fun (pt, _s') ->
-        fail m (new_error pt m e) c s)
+      else
+        ct_bind (take s) (fun (pos, _, _) ->
+          fail m (new_error pos m e) c s)
     ) else (
       let pred_ma = match max with None -> None
                                  | Some m -> Some (m-1) in
@@ -1561,34 +1552,28 @@ val repeat_greedy :
 "repetition: simplest failure" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
-      (Some { what = ["a"] ;
-              where = Item (0, 'z') }, [])
+      (Some { what = ["a"] ; where = 0 }, [])
       (repeat ~sep:none ~min:1 (item 'a') [] None no_corr (stream_of_string "zaab")) ;
     assert_same_results (List.print Char.print)
-      (Some { what = ["a"] ;
-              where = Item (0, 'z') }, [])
+      (Some { what = ["a"] ; where = 0 }, [])
       (repeat_greedy ~sep:none ~min:1 (item 'a') [] None no_corr (stream_of_string "zaab"))
 ) ;
 "repetition: missing separator" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
-      (Some { what = ["-"] ;
-              where = Item (3, 'a') }, [])
+      (Some { what = ["-"] ; where = 3 }, [])
       (repeat ~sep:(item '-') ~min:3 (item 'a') [] None no_corr (stream_of_string "a-aab")) ;
     assert_same_results (List.print Char.print)
-      (Some { what = ["-"] ;
-              where = Item (3, 'a') }, [])
+      (Some { what = ["-"] ; where = 3 }, [])
       (repeat_greedy ~sep:(item '-') ~min:3 (item 'a') [] None no_corr (stream_of_string "a-aab"))
 ) ;
 "repetition: below min" >:: (
   fun _ctx ->
     assert_same_results (List.print Char.print)
-      (Some { what = ["a"] ;
-              where = Item (2, 'b') }, [])
+      (Some { what = ["a"] ; where = 2 }, [])
       (repeat ~sep:none ~min:3 (item 'a') [] None no_corr (stream_of_string "aab")) ;
     assert_same_results (List.print Char.print)
-      (Some { what = ["a"] ;
-              where = Item (2, 'b') }, [])
+      (Some { what = ["a"] ; where = 2 }, [])
       (repeat_greedy ~sep:none ~min:3 (item 'a') [] None no_corr (stream_of_string "aab"))
 ) ;
 ----
@@ -1637,8 +1622,7 @@ With all these new combinators, more interesting tests can be devised:
       (None, [['0';'0';'0'], no_corr, drop 4 rest3])
       (p [] None no_corr rest3) ;
     assert_same_results (List.print Char.print)
-      (Some { what = ["0"] ;
-              where = Item (3, '5') }, [])
+      (Some { what = ["0"] ; where = 3 }, [])
       (p [] None no_corr rest4)
 ) ;
 ----
@@ -1651,11 +1635,11 @@ let replace x _ = x
 let anything ?(what="anything") m e c s =
   let m = what::m in
   ct_bind (take s) (function
-    | EndOfStream, _s' ->
+    | pos, EndOfStream, _s' ->
       let m = "unexpected end of stream"::m in
-      let e' = new_error EndOfStream m e in
+      let e' = new_error pos m e in
       fail m e' c s
-    | Item (_pos, tok), s' ->
+    | _, Item tok, s' ->
       return tok m e c s')
 ----
 
@@ -1669,6 +1653,56 @@ val anything : ?what:string -> token t
 ----
 
 == Miscellaneous
+
+=== Improving error reporting
+
+We have touched a bit on this topic earlier, when devising the alternate
+function +oneof+: we make it so that when both alternative fails
+_at_the_very_start_ then the error reported is about the alternative not the
+last failing term.  We also acknowledged that in some case this restriction
+about failing right form the first token should be relaxed.
+
+We are now going to show a way to do this.
+
+Intuitively, some parser results are not significant unless they manage to parse
+at least a sizeable amount of tokens. A first parser combinator that comes to mind
+would thus, given a parser +p+, record the starting position and current best error
+before trying +p+ on the input. In case of p failing it could unwind the error
+unless it meet some criteria, for instance that the position must have reached either
+a minimum distance from the starting position or +EndOfStream+.
+
+.Parser library: conditional dismissing of errors
+[source,ml]
+----
+let dismiss_error_if cond p m e c s =
+  let start_err = e in
+  ct_bind (p m e c s) (fun (e', r as res) ->
+    ct_bind (take s) (fun (start_pos, _, _) ->
+      if e' <> start_err && cond start_pos (Option.get e').where then
+        ct_return (start_err, r)
+      else
+        ct_return res))
+----
+
+...where +cond+ is the condition dictating the dismissal of the new error, and
+for which a simple implementation can be proposed that just considers how many
+inputs have been successfully consumed before the failure:
+
+.Parser library: convenience functions to judge error significance
+[source,ml]
+----
+let parsed_fewer_than len pos1 pos2 =
+  distance pos1 pos2 < len
+----
+
+Corresponding types have to be declared in the signature as well:
+
+.Parser signature
+[source,ml]
+----
+val dismiss_error_if : (position -> position -> bool) -> 'a t -> 'a t
+val parsed_fewer_than : int -> position -> position -> bool
+----
 
 [[type-generalization]]
 === Type generalization
@@ -1794,9 +1828,9 @@ let print print_value fmt t =
 ----
 open Batteries
 
-let print_stream_item print_value fmt = function
+let print_stream_item print_token fmt = function
   | EndOfStream -> String.print fmt "end of input"
-  | Item c -> print_value fmt c
+  | Item c -> print_token fmt c
 ----
 
 .ParsersCorrections.ml: printers
@@ -1804,13 +1838,14 @@ let print_stream_item print_value fmt = function
 ----
 open Batteries
 
-let print_correction print_where fmt (pos, msg) =
-  Printf.fprintf fmt "%s at %a"
+let print_correction print_position print_token fmt (pos, tok, msg) =
+  Printf.fprintf fmt "%s at %a (near '%a')"
     msg
-    (ParsersMisc.print_stream_item print_where) pos
+    print_position pos
+    (print_stream_item print_token) tok
 
-let print_corrections print_where fmt corr =
-  ParsersBoundedSet.print (print_correction print_where) fmt corr
+let print_corrections print_position print_token fmt corr =
+  ParsersBoundedSet.print (print_correction print_position print_token) fmt corr
 ----
 
 With all this we can print errors and results:
@@ -1818,11 +1853,6 @@ With all this we can print errors and results:
 .Parser library: printers
 [source,ml]
 ----
-let print_postok fmt (pos, tok) =
-  Printf.fprintf fmt "%a (near '%a')"
-    print_position pos
-    print_token tok
-
 let print_error_context fmt = function
   | [] ->
     String.print fmt "No context known. This is bad. Good luck!"
@@ -1837,13 +1867,13 @@ let print_error fmt = function
   | None -> Printf.fprintf fmt "Ok"
   | Some e ->
     Printf.fprintf fmt "Error at %a: %a"
-      (ParsersMisc.print_stream_item print_postok) e.where
+      print_position e.where
       print_error_context e.what
 
 let print_possible_result print_output fmt (x, corr, rest) =
   Printf.fprintf fmt "(output=%a,corrections=%a,rest=%a)"
     print_output x
-    (print_corrections print_postok) corr
+    (print_corrections print_position print_token) corr
     print_stream rest
 
 let print_possible_results print_output fmt (e, r) =
@@ -1855,13 +1885,13 @@ let print_bad_result print_output fmt = function
   | Approximation (b, c, _s) ->
     Printf.fprintf fmt "Approximately: %a (corrections: %a)"
       print_output b
-      (print_corrections print_postok) c
+      (print_corrections print_position print_token) c
   | Ambiguous lst ->
     Printf.fprintf fmt "Ambiguous: %a"
       (List.print (fun fmt (b, c, _s) ->
         Printf.fprintf fmt "%a (corrections: %a)"
           print_output b
-          (print_corrections print_postok) c)) lst
+          (print_corrections print_position print_token) c)) lst
   | NoSolution e ->
     print_error fmt e
 
@@ -2636,11 +2666,12 @@ So the stream reader can either read the next available token (wrapped into a
 ----
   let rec take = function
     | Finished as s ->
-      ct_return (EndOfStream, s)
+      ct_return ((), EndOfStream, s)
     | Started s as stream ->
       if s.next < s.block.last then
         ct_return (
-          Item ((), nth s.block.buffer s.next),
+          (),
+          Item (nth s.block.buffer s.next),
           Started { s with next = s.next+1 })
       else (
         match s.block.next_block with
@@ -2669,7 +2700,7 @@ So let's call +read_buf+ and wait, confident that nothing bad will happen:
 ----
           ct_bind (read_buf s.channel) (function
           | None ->
-            ct_return (EndOfStream, Finished)
+            ct_return ((), EndOfStream, Finished)
           | Some (buffer, first, last) ->
             let next_block = { buffer ; first ; last ;
                                next_block = None } in
@@ -2701,7 +2732,7 @@ have the mutable address of the optional first block.
       | None ->
         ct_bind (read_buf u.channel) (function
         | None ->
-          ct_return (EndOfStream, Finished)
+          ct_return ((), EndOfStream, Finished)
         | Some (buffer, first, last) ->
           let next_block = { buffer ; first ; last ;
                              next_block = None } in
@@ -2719,7 +2750,7 @@ like a Parsers.CONFIG:
 [source,ml]
 ----
   type position = unit
-  let cmp_position () () = 0
+  let distance () () = 0
   let print_position fmt () =
     String.print fmt "some location"
   let stream_of_string _str =
@@ -2851,12 +2882,19 @@ end
 === Positioning in a stream
 
 The +take+ function from +Parsers.CONFIG+ must return the position along with
-the token. Of course there is no need to actually store a position with each
-token. Instead, what is needed is a function that change a function returning
-only the tokens into a function returning both. Again, we need those wrapper to be
-pure from side effects as we may read the stream several times ; thus we cannot
-hide the required state in a closure. Instead we add the positioner state to
-the stream type.
+the token. Most use cases will require the position as the location in the source
+text presented as the conventional line + column numbers. Others will prefer a
+simpler offset from the beginning of the stream. Others may even have more
+specialized requirements.
+
+The stream implementations proposed in the library cannot implement each of those
+and therefore they return no position (or rather: a unit value). Those
+implementations can then be wrapped into another function that will compute
+and overwrite the position.
+
+Again, we need those wrapper to be pure from side effects as we may read the
+stream several times ; thus we cannot hide the required state in a closure.
+Instead we add the positioner state to the stream type.
 
 The simplest such wrapper function, that works for every type of token, just
 adds the offset from the beginning of the stream:
@@ -2878,18 +2916,19 @@ struct
   type 'a ct = 'a Conf.ct
   let ct_bind = Conf.ct_bind
   let ct_return = Conf.ct_return
-  type stream = Conf.stream * int
   type position = int
-  let cmp_position = Int.compare
+  type stream = Conf.stream * position
+
+  let distance pos1 pos2 = pos2 - pos1
   let print_position fmt ofs =
     Printf.fprintf fmt "offset %d" ofs
   let print_stream fmt (str, _) = Conf.print_stream fmt str
-  let take (stream, state) =
+  let take (stream, pos) =
     ct_bind (Conf.take stream) (function
-      | Item (_, tok), stream' ->
-        ct_return (Item (state, tok), (stream', state+1))
-      | EndOfStream, stream' ->
-        ct_return (EndOfStream, (stream', state)))
+      | _, Item tok, stream' ->
+        ct_return (pos, Item tok, (stream', pos+1))
+      | _, EndOfStream, stream' ->
+        ct_return (pos, EndOfStream, (stream', pos)))
   let stream_of_string str = Conf.stream_of_string str, 0
 end
 ----
@@ -2905,10 +2944,12 @@ TODO:
 .ParsersPositions.ml: pairing a line number and column number with every characters
 [source,ml]
 ----
+type file_position = { offs : int ; line : int ; column : int }
+
 module LineCol (Conf : Parsers.CONFIG with type token = char)
   : Parsers.CONFIG with type token = Conf.token
-                    and type position = int * int
-                    and type stream = Conf.stream * int * int
+                    and type position = file_position
+                    and type stream = Conf.stream * file_position
                     and type 'a ct = 'a Conf.ct =
 struct
   (* Include Conf but change the stream type *)
@@ -2917,24 +2958,25 @@ struct
   type 'a ct = 'a Conf.ct
   let ct_bind = Conf.ct_bind
   let ct_return = Conf.ct_return
-  type stream = Conf.stream * int * int
-  type position = int * int
-  let cmp_position (l1, c1) (l2, c2) =
-    match Int.compare l1 l2 with
-    | 0 -> Int.compare c1 c2
-    | x -> x
-  let print_position fmt (line, col) =
-    Printf.fprintf fmt "line %d, col %d" line col
-  let print_stream fmt (str, _, _) = Conf.print_stream fmt str
-  let take (stream, line, col) =
+  type position = file_position
+  type stream = Conf.stream * position
+
+  let distance pos1 pos2 = pos2.offs - pos1.offs
+  let print_position fmt pos =
+    Printf.fprintf fmt "line %d, col %d" pos.line pos.column
+  let print_stream fmt (str, _) = Conf.print_stream fmt str
+  let take (stream, pos) =
     ct_bind (Conf.take stream) (function
-      | Item (_, tok), stream' ->
-        let line', col' =
-          if tok = '\n' then (line+1, 1)
-          else (line, col+1) in
-        ct_return (Item ((line, col), tok), (stream', line', col'))
-      | EndOfStream, stream' ->
-        ct_return (EndOfStream, (stream', line, col)))
-  let stream_of_string str = Conf.stream_of_string str, 1, 1
+      | _, Item tok, stream' ->
+        let line, column =
+          if tok = '\n' then (pos.line+1, 1)
+          else (pos.line, pos.column+1) in
+        let pos' = { offs = pos.offs + 1 ; line ; column } in
+        ct_return (pos', Item tok, (stream', pos'))
+      | _, EndOfStream, stream' ->
+        ct_return (pos, EndOfStream, (stream', pos)))
+  let stream_of_string str =
+    let start_pos = { offs = 0 ; line = 1 ; column = 0 } in
+    Conf.stream_of_string str, start_pos
 end
 ----
