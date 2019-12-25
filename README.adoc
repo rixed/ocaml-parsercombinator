@@ -13,7 +13,7 @@ v0.1, 2015-10-27
 This document describes the implementation of a library performing text
 parsing according to a technique that is called
 https://en.wikipedia.org/wiki/Parser_combinator[parser combinators] because the
-parser for a given grammar is build combining simpler parsers. This technique
+parser for a given grammar is build by combining simpler parsers. This technique
 is fashionable although old and slow for the reason that it is simple and
 permissive.
 
@@ -36,7 +36,7 @@ speed is not an issue.
 
 === Parsing binary
 
-Although most of the times one wants to parse text there are cases when the
+Although most of the times one wants to parse text, there are cases when the
 need arises to parse binary messages (such as when parsing some networking
 protocols). Therefore parsed input tokens must not be bound to characters.
 
@@ -82,13 +82,13 @@ though.
 Alternatively, threading is another way to freeze ones stack: a parser waiting
 for input could just be waiting for a conditional variable, or the input stream
 could be a `mailbox variable` kind of queue, etc. All this amount to relying on
-the kernel to freeze the parser and resume it later.
+the operating to freeze the parser and resume it later.
 
 We might want to use those parsers in an environment where using POSIX threads
 is not an option, though (such as: in a microkernel).  In that case lightweight
 threads (akin to gnupth) could work, but that's still a huge constraint on the
 environment. Instead, closure-based threads, a variety of cooperative threads
-where a thread context is saved in a function closures (and that are also
+where a thread context is saved in a function closure (and that are also
 sometime referred to as "lightweight threads") are cheap and does not depend on
 OS support ; for this reason they are available in many shapes and forms. The
 downside is that the API needs to accommodate for those (basically, each parser
@@ -116,7 +116,7 @@ Correcting Parser Combinators: A Short Tutorial], a XX^th^ century paper.
 === Error reporting
 
 Although this is related to error detection, error reporting is a requirement
-on it own.  Indeed, a parser could do a good job at correcting typos but still
+on its own.  Indeed, a parser could do a good job at correcting typos but still
 be unable to report a meaningful error message when it fails to process the
 input tokens.
 
@@ -141,9 +141,10 @@ type ('a, 'b) parser = 'a list -> ('b * 'a list) list
 
 Which reads like this: Calling α (+'a+) the type of the input tokens and β
 (+'b+) the type of the result, a parser is a function that takes a list of α
-and returns a list of pairs composed of a β and a list of α, with the
-assumptions that the output is a list of all possible solutions, composed of
-the result of the parse and the list of tokens that remain to be parsed.
+and returns a list of pairs composed of a β and a list of α, being the list
+of all possible solutions, composed of the result of parsing and the list of
+tokens that remain to be parsed.
+
 Ideally, a successful top level parser will thus return a list composed of a
 single pair (non ambiguity of the outcome) made of the final result and an
 empty list (the whole input has been consumed).
@@ -197,7 +198,7 @@ Due to functorization we have to explicitly provide a signature for the
 result of +Make+ so that we can use the resulting parser as input of further
 functors.
 
-The configuration must thus provides not only the actual type for frozen
+The configuration must thus provide not only the actual type for frozen
 computations (aka future values) but also a way to wrap a value into such a
 `future value` and a way to pipe one `thread` into another, both operations
 typically called `return` and `bind` but here prefixed with +ct_+ because we
@@ -237,14 +238,13 @@ from previously stored streams. That is why +take+ returns both the next token
 and the next (shorter) stream. In other words it must be a persistent data
 structure.
 
-For convenience better not keep it secret where our +Parsers+ takes its types
+For convenience better not keep it secret where our +Parsers+ take their types
 from:
 
 .parser public type constraints
 [source,ml]
 ----
 and type 'a ct = 'a Conf.ct
-and type stream = Conf.stream
 ----
 
 Thus a parser now has this shape:
@@ -290,7 +290,7 @@ for x = new form(...);
 Obviously the intent was to write +form x = ...+. Imagine the rule to parse the
 second line is +is_keyword XOR is_name+. Once the parser have accepted the
 keyword +for+ as valid without questioning it then it is likely that the error
-message porting on what follows will be hard to understand. On another hand, if
+message pointing at what follows will be hard to comprehend. On another hand, if
 the parser also tried to force the failure of the keyword parser in this
 location then it will notice that everything would parse properly henceforth,
 suggesting a better error message. So it seems beneficial to return that
@@ -341,7 +341,7 @@ maximum amount of changes allowed) and which API will become clearer as we
 encounter the few required functions.
 
 Trivially, to add an error at a given position to the correction list, with
-message +msg+:
+message +m+:
 
 .ParsersCorrections.ml: recording a change
 [source,ml]
@@ -434,7 +434,7 @@ let new_error pt m = function
 With the idea that a stack of messages describing the context is maintained
 from one parser to the next as the context gets deeper. Therefore, every parser
 must accept this current stack as an additional input and enrich it with
-whatever makes sense (which oftentimes require some hint from the caller).
+whatever makes sense (which oftentimes requires some hint from the caller).
 
 So that the new (and final) type for parsers expands to:
 
@@ -563,7 +563,7 @@ We will devise a more elaborate configuration for +LWT+ later on.
 
 == Base parsers (to be combined)
 
-=== Fail, Return and check.
+=== Fail, Return and check
 
 The simplest parser that does nothing is +return+. It does not
 consume anything from the input but merely return a single result:
@@ -1778,14 +1778,6 @@ val print_position : 'o BatInnerIO.output -> position -> unit
 val print_stream : 'o BatInnerIO.output -> stream -> unit
 ----
 
-Also, for convenience:
-
-.Parser configuration:
-[source,ml]
-----
-val current_position : stream -> position
-----
-
 With a printer for +ParsersBoundedSet.t+ we could also print corrections:
 
 .ParsersBoundedSet.ml: printer
@@ -2625,7 +2617,7 @@ struct
   let print_stream fmt = function
     | Unstarted _ -> Printf.fprintf fmt "Unstarted"
     | Started _  -> Printf.fprintf fmt "TODO"
-    | Finished  -> Printf.fprintf fmt "EOF"
+    | Finished -> Printf.fprintf fmt "EOF"
 ----
 
 <1> These first and last indexes are fixed. They tell us where in the buffer
@@ -2695,7 +2687,7 @@ Of course it costs nothing to check the above assumption:
 ----
 
 The case where the stream is not started yet is interesting: this stream has to
-be sharable as well, but we must have only one instance of the pointer to the
+be shareable as well, but we must have only one instance of the pointer to the
 next block (so that when one instance triggers the actual read all other
 instances can find the data) and we do not want to keep a pointer to the head
 of the list forever (we want the list to be garbage collected). So we merely
@@ -2732,7 +2724,6 @@ like a Parsers.CONFIG:
     String.print fmt "some location"
   let stream_of_string _str =
     failwith "Not implemented"
-  let current_position _ = ()
 end
 ----
 
@@ -2881,7 +2872,7 @@ module Offset (Conf : Parsers.CONFIG )
                     and type stream = Conf.stream * int
                     and type 'a ct = 'a Conf.ct =
 struct
-  (* Include all but stream type :( *)
+  (* Include Conf but change the stream type *)
   type token = Conf.token
   let print_token = Conf.print_token
   type 'a ct = 'a Conf.ct
@@ -2893,7 +2884,6 @@ struct
   let print_position fmt ofs =
     Printf.fprintf fmt "offset %d" ofs
   let print_stream fmt (str, _) = Conf.print_stream fmt str
-  let current_position (_, ofs) = ofs
   let take (stream, state) =
     ct_bind (Conf.take stream) (function
       | Item (_, tok), stream' ->
@@ -2921,6 +2911,7 @@ module LineCol (Conf : Parsers.CONFIG with type token = char)
                     and type stream = Conf.stream * int * int
                     and type 'a ct = 'a Conf.ct =
 struct
+  (* Include Conf but change the stream type *)
   type token = Conf.token
   let print_token = Conf.print_token
   type 'a ct = 'a Conf.ct
@@ -2935,7 +2926,6 @@ struct
   let print_position fmt (line, col) =
     Printf.fprintf fmt "line %d, col %d" line col
   let print_stream fmt (str, _, _) = Conf.print_stream fmt str
-  let current_position (_, line, col) = line, col
   let take (stream, line, col) =
     ct_bind (Conf.take stream) (function
       | Item (_, tok), stream' ->
