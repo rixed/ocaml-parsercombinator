@@ -18,7 +18,7 @@ install: [make "install"]
 remove: ["ocamlfind" "remove" "parsercombinator"]
 depends: [
   "ocamlfind" {build}
-  "batteries" {>= "2.10.0"}
+  "batteries" {>= "2.11.0"}
   "ounit" {with-test}
   "portia" {build & >= "1.0"}
   "lwt"
