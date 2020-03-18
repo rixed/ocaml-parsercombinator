@@ -359,7 +359,7 @@ type for the parser:
 type 'b possible_result =
   'b * ((position, token) ParsersCorrections.t) * stream
 type 'b t =
-  (position * token) ParsersCorrections.t -> stream ->
+  (position, token) ParsersCorrections.t -> stream ->
   'b possible_result list ct
 ----
 
