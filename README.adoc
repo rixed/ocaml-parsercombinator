@@ -488,11 +488,11 @@ let to_result x =
     ct_return (match r with
     | [ b, c, s ] ->
       if ParsersBoundedSet.is_empty c then Ok (b, s)
-      else Bad (Approximation (b, c, s))
+      else Error (Approximation (b, c, s))
     | [] ->
-      Bad (NoSolution e)
+      Error (NoSolution e)
     | lst ->
-      Bad (Ambiguous lst)))
+      Error (Ambiguous lst)))
 ----
 
 of type:
@@ -1904,7 +1904,7 @@ let print_bad_result print_output fmt = function
 
 let print_result print_output fmt = function
   | Ok (b, _s) -> print_output fmt b
-  | Bad e -> print_bad_result print_output fmt e
+  | Error e -> print_bad_result print_output fmt e
 ----
 
 .Parser signature
@@ -1946,7 +1946,7 @@ let of_string p str =
   let s = stream_of_string str in
   ct_bind
     ((p +- eof) [] None no_error_correction s |> to_result) (function
-    | Bad e -> ct_return (Bad e)
+    | Error e -> ct_return (Error e)
     | Ok (res, _rest) -> ct_return (Ok res))
 ----
 
@@ -1965,9 +1965,9 @@ exception ParseError of string
 
 let of_string_exn p str =
   ct_bind (of_string p str) (function
-  | Bad (Approximation _) -> raise (ParseError "Approximate result")
-  | Bad (Ambiguous _)     -> raise (ParseError "Ambiguous result")
-  | Bad (NoSolution e)    -> raise (ParseError (IO.to_string print_error e))
+  | Error (Approximation _) -> raise (ParseError "Approximate result")
+  | Error (Ambiguous _)     -> raise (ParseError "Ambiguous result")
+  | Error (NoSolution e)    -> raise (ParseError (IO.to_string print_error e))
   | Ok x -> ct_return x)
 ----
 
