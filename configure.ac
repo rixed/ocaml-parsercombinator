@@ -13,7 +13,18 @@ if test "$OCAMLFIND" = "no"; then
   AC_MSG_ERROR([You must install OCaml findlib (the ocamlfind command)])
 fi
 
-AC_CHECK_OCAML_PKG(batteries portia lwt)
+AC_CHECK_OCAML_PKG([batteries])
+AS_IF([test "$OCAML_PKG_batteries" = "no"], [
+  AC_MSG_ERROR([OCaml package batteries not found])
+])
+AC_CHECK_OCAML_PKG([portia])
+AS_IF([test "$OCAML_PKG_portia" = "no"], [
+  AC_MSG_ERROR([OCaml package portia not found])
+])
+AC_CHECK_OCAML_PKG([lwt_ppx])
+AS_IF([test "$OCAML_PKG_lwt_ppx" = "no"], [
+  AC_MSG_ERROR([OCaml package lwt_ppx not found])
+])
 
 AC_CONFIG_FILES([Makefile make.common opam])
 AC_OUTPUT
