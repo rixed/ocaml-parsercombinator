@@ -17,6 +17,7 @@
 *.bak
 test.ml
 conf-check.old
+configure
 /Makefile
 /make.common
 /config.status
