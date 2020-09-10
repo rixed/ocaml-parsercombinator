@@ -1,4 +1,5 @@
 .depend
+.gensource_stamp
 *.cmi
 *.cmo
 *.cma

@@ -14,7 +14,7 @@ GEN_ARC_SOURCES = \
 GEN_SOURCES = \
 	$(GEN_ARC_SOURCES) ParsersLwtConfig.ml test.ml
 
-GEN_FILES = $(GEN_SOURCES) README.html
+GEN_FILES = $(GEN_SOURCES) .gensource_stamp README.html
 
 REQUIRES = batteries lwt_ppx lwt.unix
 
@@ -27,8 +27,10 @@ all: $(ARCHIVES) $(XARCHIVES)
 README.annot: $(GEN_SOURCES:.ml=.annot)
 	cat $(GEN_SOURCES:.ml=.annot) > $@
 
-$(GEN_SOURCES): README.adoc
+.gensource_stamp: README.adoc
 	ocamlfind portia/portia -ignore-missing -libdir "$$(ocamlfind query portia)" -syntax asciidoc -syntax ocaml $<
+	@touch $@
+$(GEN_SOURCES): .gensource_stamp
 
 include $(top_srcdir)/make.common
 
