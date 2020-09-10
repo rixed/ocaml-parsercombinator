@@ -6,8 +6,26 @@ OCAMLDOC   = @OCAMLFIND@ ocamldoc -html -colorize-code -all-params
 OCAMLMKTOP = @OCAMLFIND@ ocamlmktop -g
 DOCDIR    ?= doc/
 WARNS      = Ael-31-41-44-45
+DEFAULT_VERBOSITY = 0
 override OCAMLOPTFLAGS += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir) -inline 9 -S
 override OCAMLFLAGS    += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir)
+
+# Used for silent rules
+
+V_OCAMLC = $(v_OCAMLC_$(V))
+v_OCAMLC_ = $(v_OCAMLC_$(DEFAULT_VERBOSITY))
+v_OCAMLC_0 = @echo "  OCAMLC   " $@;
+v_OCAMLC_1 =
+
+V_OCAMLOPT = $(v_OCAMLOPT_$(V))
+v_OCAMLOPT_ = $(v_OCAMLOPT_$(DEFAULT_VERBOSITY))
+v_OCAMLOPT_0 = @echo "  OCAMLOPT " $@;
+v_OCAMLOPT_1 =
+
+V_GEN = $(v_GEN_$(V))
+v_GEN_ = $(v_GEN_$(DEFAULT_VERBOSITY))
+v_GEN_0 = @echo "  GEN      " $@;
+v_GEN_1 =
 
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
@@ -16,16 +34,16 @@ top_builddir = @top_builddir@
 .SUFFIXES: .ml .mli .cmo .cmi .cmx .cmxs .annot
 
 %.annot: %.ml
-	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
+	$(V_OCAMLC)(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
 
 %.cmo: %.ml
-	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
+	$(V_OCAMLC)$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
 
 %.cmi: %.mli
-	$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
+	$(V_OCAMLC)$(OCAMLC) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLFLAGS) -c $<
 
 %.cmx: %.ml
-	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) -c $<
+	$(V_OCAMLOPT)$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) -c $<
 
 %.cmxs: %.ml
-	$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) -o $@ -shared $<
+	$(V_OCAMLOPT)$(OCAMLOPT) $(SYNTAX) -package "$(REQUIRES)" $(OCAMLOPTFLAGS) -o $@ -shared $<
