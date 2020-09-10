@@ -50,6 +50,8 @@ parsercombinator-lwt.cma: ParsersLwtConfig.cmo
 parsercombinator-lwt.cmxa: ParsersLwtConfig.cmx
 	$(V_OCAMLOPT)$(OCAMLOPT) -a -o $@ -package "$(REQUIRES)" $(OCAMLOPTFLAGS) $^
 
+ifeq ("@HAVE_OUNIT@", "yes")
+
 unit-tests: test.opt
 	@echo "Running other unit tests"
 	@./test.opt
@@ -60,6 +62,8 @@ test.cmx: test.ml $(XARCHIVES)
 
 test.opt: test.cmx $(XARCHIVES)
 	$(V_OCAMLOPT)$(OCAMLOPT) -o $@ -package "$(REQUIRES) oUnit" -ccopt -L$(top_srcdir) $(XARCHIVES) -linkpkg $(OCAMLOPTFLAGS) $^
+
+endif
 
 clean:
 	$(RM) *.cm[ioxa] *.cmxa *.cmxs *.a *.s *.o test.* .depend *.annot $(GEN_FILES)

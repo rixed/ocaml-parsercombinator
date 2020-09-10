@@ -26,5 +26,14 @@ AS_IF([test "$OCAML_PKG_lwt_ppx" = "no"], [
   AC_MSG_ERROR([OCaml package lwt_ppx not found])
 ])
 
+AC_CHECK_OCAML_PKG([oUnit])
+AS_IF([test "$OCAML_PKG_oUnit" = "no"], [
+  AC_MSG_WARN([OCaml package oUnit not found, tests will not be able to run])
+  have_ounit="no"
+], [
+  have_ounit="yes"
+])
+AC_SUBST([HAVE_OUNIT], ["$have_ounit"])
+
 AC_CONFIG_FILES([Makefile make.common opam])
 AC_OUTPUT
