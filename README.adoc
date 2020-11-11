@@ -657,8 +657,8 @@ So that we could write +check (nay p)+.
 
 Notice that when `nay` succeeds, ie when `p` fails, the stream of input
 tokens `s` is _not_ advanced. Indeed, we do not know of how many tokens
-to advance it (since `p` could operate on several). (Note: is `check`
-really useful then?)
+to advance it (since `p` could operate on several). (Note: if nay is useless
+without check then shouldn't it be defined as `check nay`?)
 
 .Parser signature
 [source,ml]
@@ -1401,10 +1401,10 @@ let repeat ~sep ?(min=0) ?max ?what p m =
       | 1 ->
         (* If max is greater or unset, we want at least one more and
            keep trying. But if max is also 1 then we just want one more
-           and there is no point looking further; which may avoid to block
-           to another block in some settings: *)
+           and there is no point looking further; which may avoid to wait
+           for another block of tokens in some settings: *)
         (
-          if pred_ma = Some 0 then p >>: fun x -> [x]
+          if max = Some 1 then p >>: fun x -> [x]
           else (p ++ optional ~def:[]
                        (sep -+ (loop ~min:1 ?max:pred_ma))) >>:
                 fun (x, xs) -> x::xs
@@ -1465,7 +1465,7 @@ val none : unit t
 ----
 
 We can easily define the greedy version of +repeat+ (that is, a version that
-swallows as many +p+ occurrences as present in the input stream) using check:
+swallows as many +p+ occurrences as present in the input stream) using +nay+:
 
 .(erroneous) greedy repetition
 [NOTE]
@@ -1488,8 +1488,7 @@ let rec repeat_greedy ~sep ?min ?max ?what p =
     repeat_greedy ~sep ~min:1 ?max ?what p |||
     (nay p >>: fun () -> [])
   | min ->
-    repeat ~sep ?min ?max ?what p +-
-    (nay (sep -- p) >>: fun () -> [])
+    repeat ~sep ?min ?max ?what p +- nay (sep -- p)
 ----
 
 .Parser signature
