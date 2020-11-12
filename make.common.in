@@ -6,7 +6,7 @@ OCAMLDOC   = @OCAMLFIND@ ocamldoc -html -colorize-code -all-params
 OCAMLMKTOP = @OCAMLFIND@ ocamlmktop -g
 DOCDIR    ?= doc/
 WARNS      = Ael-31-41-44-45-48
-override OCAMLOPTFLAGS += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir) -inline 9 -S
+override OCAMLOPTFLAGS += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir) -O3 -S
 override OCAMLFLAGS    += $(INCS) -w $(WARNS) -g -annot -I $(top_srcdir)
 
 top_build_prefix = @top_build_prefix@
