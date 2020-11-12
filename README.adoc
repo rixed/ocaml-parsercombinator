@@ -647,7 +647,7 @@ result) especially in coordination with +check+ is the negation:
 [source,ml]
 ----
 let nay p m e c s =
-  let m = "not"::m in
+  let m = "nay"::m in
   ct_bind (p m e c s) (function
     | e', [] -> return () m e' c s
     | e', _ -> fail_or_maybe_not () m e' c s)
