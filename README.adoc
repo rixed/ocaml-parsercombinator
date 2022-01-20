@@ -1950,6 +1950,8 @@ let print_result print_output fmt = function
 ----
 val print_error : 'o BatInnerIO.output -> error option -> unit
 
+val print_error_context : 'o BatInnerIO.output -> string list -> unit
+
 val print_possible_result :
   ('o BatInnerIO.output -> 'b -> unit) ->
   'o BatInnerIO.output ->
