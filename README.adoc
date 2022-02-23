@@ -2394,9 +2394,34 @@ let decimal_scientific m =
      m *. Float.pow 10. (Num.to_float e) (* FIXME *)
    ) m
 
+let hexadecimal_scientific m =
+  let dot m = item ~what:"fractional dot" '.' m in
+  let sep = return () in
+  let sign =
+    optional ~def:'+' (item ~what:"sign" '+' ||| item ~what:"sign" '-') in
+  (sign +-
+   non_decimal_integer_prefix 'x' ++
+   repeat_greedy ~sep hexadecimal_digit ++
+   optional ~def:[] (dot -+ several_greedy ~sep hexadecimal_digit) +-
+   cond "exponent delimiter" (fun c -> c = 'p' || c = 'P') 'p' ++
+   sign ++
+   several_greedy ~sep decimal_digit >>:
+   fun ((((s1, m), n), s2), e) ->
+     let print_lst oc lst =
+       List.print ~first:"" ~last:"" ~sep:"" Char.print oc lst in
+     Printf.sprintf2 "%c0x%a.%ap%c%a"
+       s1
+       print_lst m
+       print_lst n
+       s2
+       print_lst e |>
+     Float.of_string
+  ) m
+
 let floating_point m =
   (decimal_fractional |||
-   decimal_scientific) m
+   decimal_scientific |||
+   hexadecimal_scientific) m
 ----
 
 .tests
@@ -2409,7 +2434,10 @@ let floating_point m =
       "314e2", 31400. ;
       "314e-2", 3.14 ;
       ".1", 0.1 ;
-      "1.", 1.0 ] |>
+      "1.", 1.0 ;
+      "0x1.1p1", 2.125 ;
+      "0x1.fp3", 15.5 ;
+      "-0XA.BCp-2", -2.68359375 ] |>
     List.iter (fun (input, output) ->
       assert_same_results Float.print
         (None, [output, no_corr, (String.length input, [])])
