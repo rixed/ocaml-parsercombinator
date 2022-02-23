@@ -2357,6 +2357,9 @@ introduce the exponent, for obvious reason).
 Also, notice that you can omit either the integer or the fractional part but
 not both.
 
+Finally, we also accept well known strings for NaN and infinity special
+floating point values.
+
 .usual parsers: floating point
 [source,ml]
 ----
@@ -2414,10 +2417,21 @@ let hexadecimal_scientific m =
      Float.of_string
   ) m
 
+let special_float m =
+  ((string ~case_sensitive:false "nan" >>:
+      fun () -> Float.nan)      |||
+   ((string ~case_sensitive:false "inf" |||
+     string ~case_sensitive:false "+inf") >>:
+      fun () -> Float.infinity) |||
+   (string ~case_sensitive:false "-inf" >>:
+      fun () -> Float.neg_infinity)
+  ) m
+
 let floating_point m =
-  (decimal_fractional |||
-   decimal_scientific |||
-   hexadecimal_scientific) m
+  (decimal_fractional     |||
+   decimal_scientific     |||
+   hexadecimal_scientific |||
+   special_float) m
 ----
 
 .tests
@@ -2433,7 +2447,9 @@ let floating_point m =
       "1.", 1.0 ;
       "0x1.1p1", 2.125 ;
       "0x1.fp3", 15.5 ;
-      "-0XA.BCp-2", -2.68359375 ] |>
+      "-0XA.BCp-2", -2.68359375 ;
+      "inf", Float.infinity ;
+      "-inf", Float.neg_infinity ] |>
     List.iter (fun (input, output) ->
       assert_same_results Float.print
         (None, [output, no_corr, (String.length input, [])])
