@@ -655,18 +655,15 @@ let nay p m e c s =
 
 So that we could write +check (nay p)+.
 
-Notice that when `nay` succeeds, ie when `p` fails, the stream of input
-tokens `s` is _not_ advanced. Indeed, we do not know of how many tokens
-to advance it (since `p` could operate on several). (Note: if nay is useless
-without check then shouldn't it be defined as `check nay`?)
+Notice that when `nay` succeeds, ie when `p` fails, the stream of input tokens
+`s` is _not_ advanced (it does not consume any input).  Indeed, we do not know
+of how many tokens to advance it (since `p` could operate on several).
 
 .Parser signature
 [source,ml]
 ----
 val nay : 'b t -> unit t
 ----
-
-Notice that this +nay+ parser do not consume any input.
 
 === Tests
 
@@ -2225,11 +2222,10 @@ let num_of_char c =
 let unsigned_decimal_number ?what ?(inc_zero=true) m =
   let ten = Num.num_of_int 10 in
   let m = may_add_context m what in
-  let digits m = several ~sep:none decimal_digit m in
+  let digits m = several_greedy ~sep:none decimal_digit m in
   ((if inc_zero then decimal_digit else non_zero_decimal_digit) +-
    optional ~def:' ' underscore ++
-   optional ~def:[] (several ~sep:underscore digits) +-
-   nay decimal_digit >>:
+   repeat_greedy ~sep:underscore digits >>:
    fun (first, next) ->
    List.fold_left (fun c digits ->
      List.fold_left (fun c digit ->
@@ -2378,7 +2374,7 @@ let fractional_part inv_base digit =
 let unsigned_decimal_fractional m =
   let dot m = item ~what:"fractional dot" '.' m in
   ((unsigned_decimal_number +- dot ++ fractional_part 0.1 decimal_digit) |||
-   (return Num.zero +- dot ++ fractional_part 0.1 decimal_digit)                |||
+   (return Num.zero +- dot ++ fractional_part 0.1 decimal_digit)         |||
    (unsigned_decimal_number +- dot ++ return 0.) >>:
        fun (n, p) -> Num.to_float n +. p
   ) m
