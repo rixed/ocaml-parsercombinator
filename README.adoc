@@ -13,9 +13,8 @@ v0.1, 2015-10-27
 This document describes the implementation of a library performing text
 parsing according to a technique that is called
 https://en.wikipedia.org/wiki/Parser_combinator[parser combinators] because the
-parser for a given grammar is build by combining simpler parsers. This technique
-is fashionable although old and slow for the reason that it is simple and
-permissive.
+parser for a given grammar is built by combining simpler parsers. This technique
+is fashionable, although old and slow, because it is simple and permissive.
 
 This is also an example of literate programming; in case the notations used in
 this document are unclear you can read about them in
@@ -26,7 +25,7 @@ http://rixed.github.io/portia/notations.html[this document].
 === A N+1^th^ parser to rule them all
 
 Along the years I've often written small dedicated parsing libraries, either
-using lex+yacc approach for well behaved syntaxes or custom made combinatoric
+using the lex+yacc approach for well behaved syntaxes or custom made combinatoric
 parsers because they are fun to play with and more flexible. My needs ranged
 from parsing configuration files, parsing programming languages, parsing
 natural languages, parsing networking protocols...
@@ -51,7 +50,7 @@ of rules.
 === Parsing with gaps
 
 For the same reason I want to be able to parse as much as possible of an input
-even if some parts of it is (still) missing. This is useful both to parse
+even if some parts of it are (still) missing. This is useful both to parse
 string fragments into code but also to parse a networking stream despite
 missing packets.
 
@@ -79,17 +78,17 @@ result, parsers could take the next item and return, along with each result, a
 next-step parser to apply to the next token. This is rather inconvenient,
 though.
 
-Alternatively, threading is another way to freeze ones stack: a parser waiting
+Alternatively, threading is another way to freeze one's stack: a parser waiting
 for input could just be waiting for a conditional variable, or the input stream
-could be a `mailbox variable` kind of queue, etc. All this amount to relying on
-the operating to freeze the parser and resume it later.
+could be a `mailbox variable` kind of queue, etc. All this amounts to relying on
+the operating system to freeze the parser and resume it later.
 
 We might want to use those parsers in an environment where using POSIX threads
 is not an option, though (such as: in a microkernel).  In that case lightweight
 threads (akin to gnupth) could work, but that's still a huge constraint on the
 environment. Instead, closure-based threads, a variety of cooperative threads
 where a thread context is saved in a function closure (and that are also
-sometime referred to as "lightweight threads") are cheap and does not depend on
+sometimes referred to as "lightweight threads") are cheap and do not depend on
 OS support ; for this reason they are available in many shapes and forms. The
 downside is that the API needs to accommodate for those (basically, each parser
 must return a future value rather than a value). But once this abstraction is
@@ -100,7 +99,7 @@ functorization.
 === Error detection
 
 Error detection must be an option. The simplest method to reach this goal would
-be to have an 'error budget', and try different outcomes at every step to look
+be to have an 'error budget', and try different outcomes at every step to look for
 the combination of alternatives that parse the most of the input stream.
 
 It is hard to make this technique less awfully expensive than it sounds.
@@ -162,7 +161,7 @@ but single type). Keeping it universal makes it easier to combine parsers
 else than tokens, such as the result of another parser). But on the down side
 it would force the user to hand us a stream type that can handle any type,
 which is a strong constraint to bear with ; for one, it prevents the stream
-implementation to look at the actual values. This would prove too inconvenient
+implementation from looking at the actual values. This would prove too inconvenient
 given we will enrich the stream with positions. We thus change the type of the
 stream to return an existential rather than universal type:
 
@@ -232,7 +231,7 @@ constructors, defined in a separate module for fear of circular dependencies:
 type 'a stream_item = Item of 'a | EndOfStream
 ----
 
-Notice that this +stream+ container must be free of side effects to the extend
+Notice that this +stream+ container must be free of side effects to the extent
 that any token read from it in one place must still be available for reading
 from previously stored streams. That is why +take+ returns both the next token
 and the next (shorter) stream. In other words it must be a persistent data
@@ -288,9 +287,9 @@ for x = new form(...);
 ----
 
 Obviously the intent was to write +form x = ...+. Imagine the rule to parse the
-second line is +is_keyword XOR is_name+. Once the parser have accepted the
+second line is +is_keyword XOR is_name+. Once the parser has accepted the
 keyword +for+ as valid without questioning it then it is likely that the error
-message pointing at what follows will be hard to comprehend. On another hand, if
+message pointing at what follows will be hard to comprehend. On the other hand, if
 the parser also tried to force the failure of the keyword parser in this
 location then it will notice that everything would parse properly henceforth,
 suggesting a better error message. So it seems beneficial to return that
@@ -325,7 +324,7 @@ it's probably better to leave it open to the user. Let's therefore assume that
 both tokens and positions are read from the input stream.
 
 In addition to the location a mere description of the parser that we forced
-to succeed (as a string) completes the +ParsersCorrection.t+:
+to succeed (as a string) completes the +ParsersCorrections.t+:
 
 .ParsersCorrections.ml: type
 [source,ml]
@@ -335,7 +334,7 @@ type ('pos, 'tok) t = ('pos * 'tok stream_item * string) ParsersBoundedSet.t
 ----
 
 where +ParsersBoundedSet+ is an unordered container with a maximum capacity (the
-maximum amount of changes allowed) and which API will become clearer as we
+maximum amount of changes allowed) and whose API will become clearer as we
 encounter the few required functions.
 
 Trivially, to add an error at a given position to the correction list, with
@@ -363,7 +362,7 @@ type 'b t =
   'b possible_result list ct
 ----
 
-The type +position+ have to be supplied by the functor configuration and now we
+The type +position+ has to be supplied by the functor configuration and now we
 have the final type for +stream+/+take+:
 
 .Parser configuration: now also supplying position
@@ -390,11 +389,11 @@ In addition to the cumulative list of all solutions a parser should also return
 an aggregated value containing the "best" error found.
 
 What we call the "best" error is the error that caused the parser to give up
-(return +[]+) the later in the input stream, measured by the position of the
+(return +[]+) the furthest in the input stream, measured by the position of the
 token. We thus need a comparison function between two positions. We could have
 a minimally informative +greater_than : position -> position -> bool+ function,
 but it will be later convenient to have an idea of the actual (oriented)
-distance between any two positions, to let's rather define:
+distance between any two positions, so let's rather define:
 
 .Parser configuration: comparator for positions
 [source,ml]
@@ -473,7 +472,7 @@ always be given the same one letter names:
 - +s+ for the +stream+;
 - +x+ for a +token+;
 - +p+ for a parser (of type +t+);
-- +r+ for a list or possible results (of type +'b possible_result list+).
+- +r+ for a list of possible results (of type +'b possible_result list+).
 
 The output itself, +(error option * 'b possible_result list) ct+ suits
 combining parsers but may be a bit of a mouthful for the end user to chew. This
@@ -516,10 +515,10 @@ type 'b failure =
 ----
 
 Notice that we pay no attention to whether the stream has been emptied or not.
-If one want to reach the end of the input stream then that must be part of the
+If one wants to reach the end of the input stream then that must be part of the
 parser (see +eof+).
 
-It will come handy to have a configuration that's as simple as possible, with
+It will come in handy to have a configuration that's as simple as possible, with
 no threading going on, for those cases where we do not need resumable parsers;
 for instance when testing. Since there is no threading all the input has to be
 already available and can thus be passed using a mere list.
@@ -562,7 +561,7 @@ We will devise a more elaborate configuration for +LWT+ later on.
 === Fail, Return and check
 
 The simplest parser that does nothing is +return+. It does not
-consume anything from the input but merely return a single result:
+consume anything from the input but merely returns a single result:
 
 .Parser library: return
 [source,ml]
@@ -570,7 +569,7 @@ consume anything from the input but merely return a single result:
 let return x _m e c s = ct_return (e, [x, c, s])
 ----
 
-A similarly simple one is the parser that always fail:
+A similarly simple one is the parser that always fails:
 
 .Parser library: fail
 [source,ml]
@@ -605,7 +604,7 @@ let fail_or_maybe_not x (* <1> *) m e c s =
   ) else (
     (* Here we insert x in the stream ;
        Shall we also try to replace pos_tok with x?
-       In any case beware than s maybe end_of_stream.
+       In any case beware that s may be end_of_stream.
        TODO: two types of correction: replace and insert *)
     (* Note that corrections still count as errors because there is no
        guarantee that we will keep track of them: *)
@@ -620,7 +619,7 @@ compiler does when complaining about an incomplete pattern matching).
 
 Another parser that does not consume any input is the +check+ parser that we
 have mentioned earlier. It is actually a combinator since it takes another
-parser as parameter. It checks that the given parser succeed but then return
+parser as parameter. It checks that the given parser succeeds but then returns
 the input stream unchanged (with a +unit+ result). The only thing interesting
 is that it explores forcing a success in case the check fails.
 
@@ -657,7 +656,7 @@ So that we could write +check (nay p)+.
 
 Notice that when `nay` succeeds, ie when `p` fails, the stream of input tokens
 `s` is _not_ advanced (it does not consume any input).  Indeed, we do not know
-of how many tokens to advance it (since `p` could operate on several).
+by how many tokens to advance it (since `p` could operate on several).
 
 .Parser signature
 [source,ml]
@@ -668,7 +667,7 @@ val nay : 'b t -> unit t
 === Tests
 
 It is important to have a test infrastructure in place before it's needed.
-Given literate programing allows us to mix code and tests at ease we do not
+Given literate programming allows us to mix code and tests at ease we do not
 need to get this feature from such a tool as
 https://github.com/vincent-hugot/iTeML[qtest] and will use
 http://ounit.forge.ocamlcore.org/api-ounit/index.html[oUnit] directly.
@@ -781,7 +780,7 @@ let () =
 Notice that we have to force the type of +assert_same_results+ to be +unit+
 (with +ignore+) otherwise it would be +unit P.ct P.ct+, which should be
 demonstrably equivalent to +unit+ given +SimpleConfig+ but still makes the
-compiler to grumble.
+compiler grumble.
 
 Let's warm this up with simple tests for +return+ and +fail+ (which really does
 not cause too much worries):
@@ -818,7 +817,7 @@ not cause too much worries):
 === Checking for end of stream
 
 Another very useful and basic parser is the one that succeeds on EOF and
-fails everywhere else. It is useful to check that the input stream have been
+fails everywhere else. It is useful to check that the input stream has been
 consumed entirely by the preceding parsers.
 
 We do not engage in error detection in this parser: mimicking success implies
@@ -829,7 +828,7 @@ message be trivial enough already? Also, when error detection is allowed then
 we (should) also try to skip tokens, which is enough to correct a few spurious
 chars at the end.
 
-The real reason of course is none of the above. It is that forcing +eof+ to
+The real reason, of course, is none of the above. It is that forcing +eof+ to
 succeed would require an 'empty_stream' from the configuration, which was
 too inconvenient.
 
@@ -881,10 +880,10 @@ And the accompanying tests:
 
 === First non trivial parser
 
-The more general of parsers that do consume some input is the +cond+ parser,
+The most general of parsers that do consume some input is the +cond+ parser,
 which tries to recognize a condition on the next token (for instance that it
 is equal to a given value). So +cond+ is a function that takes a predicate on
-token and returns a parser that, when given this token, returns it (and
+tokens and returns a parser that, when given this token, returns it (and
 consumes it), or otherwise fails (with a message describing what it was
 looking for).
 
@@ -935,9 +934,9 @@ val cond_map : string -> (token -> 'b option) -> 'b -> 'b t
 from which a simpler +cond+ parser can be written:
 
 // TODO: a way in portia to say "replaces 'Parser library: the cond parser'"
-// TODO (alt): A definition starting with same name a one that already
-//             exist, followed by a coma and something should replace it in
-//             the output instead of been appended to it.
+// TODO (alt): A definition starting with the same name as one that already
+//             exists, followed by a comma and something should replace it in
+//             the output instead of being appended to it.
 .Parser library: the cond parser, revisited
 [source,ml]
 ----
@@ -947,8 +946,8 @@ let cond expl f =
 
 It is possible to build many simpler and more convenient parsers on top of
 +cond+, such as +item+ which expects a specific token in the input, and
-+range+ which expect anything in the given token range (assuming token
-behavior in face of an inequality operator makes sense) :
++range+ which expects anything in the given token range (assuming token
+behavior in the face of an inequality operator makes sense):
 
 .Parser library: the item parser
 [source,ml]
@@ -1074,7 +1073,7 @@ succeeding when they fail.
 
 The more general way to build a combinator for the succession of two parsers is
 to take the first parser +p1+ and a function +f+ which, given the output of
-+p1+, will return a parser +p2+ to apply to the remaining of the input stream.
++p1+, will return a parser +p2+ to apply to the remainder of the input stream.
 Let's call this combinator +bind+ (by analogy with the type of the +bind+
 operation in the monad ``design pattern''). The values of +bind p1 f+ are the
 values of +p2+, +p1+ intermediary values being only meaningful to build +p2+.
@@ -1141,9 +1140,9 @@ val (++) : 'b t -> 'd t -> ('b * 'd) t
 Also, we will often discard the result of one parser. For instance when
 parsing delimiters the only information is that the parser succeeds (there is
 a delimiter) but there is no value to attach to that success. Also when using
-the +check+ parser, which purpose is really not its return value. So here are
+the +check+ parser, whose purpose is really not its return value. So here are
 three variants of +cons+: one that ignores the result of +p1+, one that
-ignores the result of +p2+ and one that ignore both (returning +()+):
+ignores the result of +p2+ and one that ignores both (returning +()+):
 
 .Parser library: other convenient infix operators
 [source,ml]
@@ -1191,8 +1190,8 @@ let oneof p1 p2 m e c s =
       ct_return (e'', List.rev_append r r')))
 ----
 
-...which simply try each parser in turn, accumulate the best error and combine
-the possible results.
+...which simply tries each parser in turn, accumulates the best error and
+combines the possible results.
 
 There is a small inconvenience here: if both terms of the alternative +p1+ and
 +p2+ failed right from the start, then the resulting error will be about +p2+.
@@ -1204,8 +1203,8 @@ registered for the starting position and it will overwrite the best error +e''+
 if it's also located there.
 
 If either +p1+ or +p2+ managed to parse even a tiny bit of +s+ then it will
-still be favored in the error report, which might or not be good depending on
-how _likely_ this parser fails late on random data.
+still be favored in the error report, which might or might not be good depending on
+how _likely_ this parser is to fail late on random data.
 
 .Parser library: alternative
 [source,ml]
@@ -1229,7 +1228,7 @@ val oneof : 'b t -> 'b t -> 'b t
 val (|||) : 'b t -> 'b t -> 'b t
 ----
 
-Notice that results are really sets not list, so the order in which the
+Notice that results are really sets, not lists, so the order in which the
 alternatives are listed does not matter.  Notice also that this is not an
 exclusive alternative: if both +p1+ and +p2+ can parse then both will
 contribute a result to the result set. As discussed in the beginning we do
@@ -1252,9 +1251,9 @@ val either : 'b t -> 'b t -> 'b t
 val (|/|)  : 'b t -> 'b t -> 'b t
 ----
 
-Finally, we can introduce a _left_leaning_ version of +oneof+ that would try
+Finally, we can introduce a _left-leaning_ version of +oneof+ that would try
 +p2+ only if +p1+ fails. This can considerably speed up parsing at places where
-the grammar is non ambiguous:
+the grammar is unambiguous:
 
 .Parser library: left-leaning oneof
 [source,ml]
@@ -1389,9 +1388,9 @@ Which behavior we'd better test:
 ) ;
 ----
 
-Sometime it's more convenient that the optional parser return an optional value
+Sometimes it's more convenient that the optional parser returns an optional value
 instead of a default one. Then one can use +None+ as the default and combine
-the parser with this +some+ parser, to make +optional+ returns an option type:
+the parser with this +some+ parser, to make +optional+ return an option type:
 
 .Parser library: some
 [source,ml]
@@ -1405,7 +1404,7 @@ let some p = p >>: fun x -> Some x
 val some : 'a t -> 'a option t
 ----
 
-The +repeat+ combinator is a swiss-army knife for all variants of
+The +repeat+ combinator is a Swiss-army knife for all variants of
 repetitions, requiring a parser +p+ to succeed from +min+ to +max+ times
 consecutively, with an optional additional parser +sep+ for a separator in
 between +p+ occurrences.  It returns a list of all values returned by the
@@ -1437,7 +1436,7 @@ let repeat ~sep ?(min=0) ?max ?what p m =
       | 1 ->
         (* If max is greater or unset, we want at least one more and
            keep trying. But if max is also 1 then we just want one more
-           and there is no point looking further; which may avoid to wait
+           and there is no point looking further; which may avoid waiting
            for another block of tokens in some settings: *)
         (
           if max = Some 1 then p >>: fun x -> [x]
@@ -1457,7 +1456,7 @@ Notice there are two conditions that terminate the recursion: +max+ reaching
 +0+ (no more occurrences permitted) or, when +min > 0+, a failure of +p+.
 
 Notice also that repeat builds a whole list before sending it to the next
-stage.  We'd like to get away with this list which most often than not will be
+stage.  We'd like to do away with this list which more often than not will be
 mapped into something else. A variant of lazy list would likely be preferable
 here (as in other places).
 
@@ -1468,8 +1467,8 @@ val repeat :
   sep:'d t -> ?min:int -> ?max:int -> ?what:string -> 'b t -> ('b list) t
 ----
 
-We'd like to get away with the mandatory +sep+ parameter using a default value
-of +return ()+ but that would prevent OCaml compiler to infer that since +sep+
+We'd like to do away with the mandatory +sep+ parameter using a default value
+of +return ()+ but that would prevent the OCaml compiler from inferring that since +sep+'s
 result is consistently discarded any result type would be as good.  Simpler
 example of this using the _REPL_:
 
@@ -1692,10 +1691,10 @@ val anything : ?what:string -> token t
 === Improving error reporting
 
 We have touched a bit on this topic earlier, when devising the alternate
-function +oneof+: we make it so that when both alternative fails
-_at_the_very_start_ then the error reported is about the alternative not the
-last failing term.  We also acknowledged that in some case this restriction
-about failing right form the first token should be relaxed.
+function +oneof+: we make it so that when both alternatives fail
+_at the very start_ then the error reported is about the alternative, not the
+last failing term.  We also acknowledged that in some cases this restriction
+about failing right from the first token should be relaxed.
 
 We are now going to show a way to do this.
 
@@ -1703,7 +1702,7 @@ Intuitively, some parser results are not significant unless they manage to parse
 at least a sizeable amount of tokens. A first parser combinator that comes to mind
 would thus, given a parser +p+, record the starting position and current best error
 before trying +p+ on the input. In case of p failing it could unwind the error
-unless it meet some criteria, for instance that the position must have reached either
+unless it meets some criteria, for instance that the position must have reached either
 a minimum distance from the starting position or +EndOfStream+.
 
 .Parser library: conditional dismissing of errors
@@ -1743,7 +1742,7 @@ val parsed_fewer_than : int -> position -> position -> bool
 === Type generalization
 
 Let's get back to why we haven't defined +none+ simply as +let none = return
-()+, letting automatic currying to lighten the syntax:
+()+, letting automatic currying lighten the syntax:
 
 ----
 # let none = return ();;
@@ -1752,34 +1751,34 @@ Error: The type of this expression, ('_a, unit, '_b) t,
        contains type variables that cannot be generalized
 ----
 
-This is actually a limitation of OCaml compiler. Here is what's happening:
+This is actually a limitation of the OCaml compiler. Here is what's happening:
 normally, in an expression like +let name = expr+, +expr+ will be typed first,
-leading in this case where +expr+ is actually +return ()+ to the type +(`_a,
+leading in this case where +expr+ is actually +return ()+ to the type +('_a,
 unit, '_b) t+ (where +'_a+ and +'_b+ are ``weak types'' (refer to the
 definition of +return+: it's merely a function of 3 parameters returning a list
-of the triplet of these 3 parameters). Once +expr+ is typed, OCaml follow this
+of the triplet of these 3 parameters). Once +expr+ is typed, OCaml follows this
 rule: if +expr+ is a function (as in +function ... ->+), a constant or an
 identifier then generalize the weak types into universal types (the more
-familiar +'a+, +'b+ etc). If +erpx+ is anything fancier, though, such as a
+familiar +'a+, +'b+ etc). If +expr+ is anything fancier, though, such as a
 partial application as is the case here, then do not generalize.
 
 If instead we had +let name params... = expr+ then, given it's syntactic sugar
 for +let name = function ... -> expr+ then the ``weak types'' would have been
 generalized.
 
-So we have to make this looks more like a function, by making explicit at least
+So we have to make this look more like a function, by making explicit at least
 one parameter (a process famously known under the tickling name
 ``eta-expansion'').
 
 This feels arbitrary because it is ; apparently this is one of the minor
-disadvantage of a typing rules that has plenty of other advantages such as
+disadvantages of a typing rule that has plenty of other advantages such as
 simplifying something that's already quite complex. See
 https://caml.inria.fr/resources/doc/faq/core.en.html#eta-expansion[the OCaml FAQ]
 for more details.
 
 This is unfortunately going to hit us a lot when defining parser combinators
-because we'd like to get away with the many meaningless and repetitive
-parameters which presence just obfuscate the intent of the code. C'est la vie.
+because we'd like to do away with the many meaningless and repetitive
+parameters whose presence just obfuscates the intent of the code. C'est la vie.
 
 === Bounded set
 
@@ -1833,7 +1832,7 @@ for types. +Batteries+ provides +dump+ but it is oblivious to constructors so
 the result is not pretty. So let's write our own printers.
 
 It would be best to provide formatters instead of mere printers to benefit
-from automatic typesetting but unfortunately +Batteries+ support for those is
+from automatic typesetting but unfortunately +Batteries+' support for those is
 minimal so it's better to forget about formatters to cut down on typing.
 
 First, parser configuration must supply printers of tokens, positions and
@@ -1973,7 +1972,7 @@ val print_result :
 === Simple string scanners
 
 Thanks to the +stream_of_string+ function we can also devise a very simple to
-use +of_string+ function for any parser, that would come handy for testing
+use +of_string+ function for any parser, that would come in handy for testing
 or other simple circumstances.
 
 .Parser library: printers
@@ -1991,7 +1990,7 @@ Notice that since we force the parser to reach the end of string we can discard
 from the result the unparsed rest of the stream, which will always be empty.
 
 Simplifying further, this exception throwing variant will just return the
-result without further ado. Notice that, for the sake of simplicity we don't
+result without further ado. Notice that, for the sake of simplicity, we don't
 force a +print_output+ argument so the error report will not be as detailed as
 the one given by +print_result+:
 
@@ -2018,8 +2017,8 @@ val of_string_exn : 'b t -> string -> 'b ct
 
 == Parsing usual things
 
-It might come handy to have some ready made parsers for common things such
-as words, numbers, etc... We will regroup those in a +ParsersUsual+ module
+It might come in handy to have some ready-made parsers for common things such
+as words, numbers, etc... We will group those in a +ParsersUsual+ module
 parametrized by a +Parsers+ module for characters:
 
 .ParsersUsual.ml: Parsers for usual things
@@ -2141,9 +2140,9 @@ let quoted_char ?(base_num=8) ?(what="character") =
          let n =
            List.fold_left (fun s c -> s * base_num + c) 0 lst in
          Char.chr n) |||
-    ((* hexanumeric escape sequence: *)
+    ((* hexadecimal escape sequence: *)
      char ~what:"x" 'x' -+
-     repeat ~sep:none ~what:"hexanumeric escape sequence" ~min:2 ~max:2 hexdigit >>:
+     repeat ~sep:none ~what:"hexadecimal escape sequence" ~min:2 ~max:2 hexdigit >>:
        fun lst ->
         let n =
           List.fold_left (fun s c -> s * 16 + c) 0 lst in
@@ -2175,8 +2174,8 @@ With some tests for good measure:
 ) ;
 ----
 
-Another usual offender is parsing C like identifiers (aka any words made of characters,
-numbers or underscore but not starting by a number):
+Another usual offender is parsing C-like identifiers (aka any words made of letters,
+digits or underscores but not starting with a digit):
 
 .usual parsers: identifier
 [source,ml]
@@ -2252,7 +2251,7 @@ let may_add_context m = function
 
 We have made +num_of_char+ accept hexadecimal digits in foresight.
 
-Octals, hexadecimal and binary numbers are then build similarly: a mandatory
+Octals, hexadecimal and binary numbers are then built similarly: a mandatory
 prefix, and some digits interleaved with underscores. Notice that only the
 prefix is mandatory and '0x' for instance is a valid immediate (representing
 zero of course), as in the Perl language.
@@ -2349,10 +2348,10 @@ let integer m =
 ) ;
 ----
 
-The syntax for floating point numbers is more _perly_.  Indeed, in additional
+The syntax for floating point numbers is more _perly_.  Indeed, in addition
 to the usual decimal and scientific notations, Perl allows hexadecimal floating
 point, with a power of two as the exponent (and a "p" instead of an "e" to
-introduce the exponent, for obvious reason).
+introduce the exponent, for obvious reasons).
 
 Also, notice that you can omit either the integer or the fractional part but
 not both.
@@ -2476,11 +2475,11 @@ Operators are another frequent occurrence. Of course how to parse an
 to discuss them here if only to demonstrate how to deal with recursive rules.
 
 Indeed, the straightforward way to define a parser for operations would rely on
-left recursion, which a combinatoric parser can not perform. Instead, we will
+left recursion, which a combinatoric parser cannot perform. Instead, we will
 have to _force_ _progress_ by defining a chain of terms and subterms in order
 of precedence.
 
-The principle of such a chain is to replace a left recursing definition such
+The principle of such a chain is to replace a left-recursive definition such
 as:
 
 [source,ml]
@@ -2497,7 +2496,7 @@ let term2 m = ((term3 +- higher_precedence_op ++ term3) ||| term3) m
 (* etc... *)
 ----
 
-Allowing recursion only after some input have been consumed:
+Allowing recursion only after some input has been consumed:
 
 [source,ml]
 ----
@@ -2512,24 +2511,24 @@ let rec this_is_still_infinite_recursion m =
    this_is_still_infinite_recursion) m
 ----
 
-Now this chain will always parse left side first. If +1 + 2 * 3+ will properly
+Now this chain will always parse left side first. While +1 + 2 * 3+ will properly
 be parsed as +1 + (2 * 3)+ (because the parse would fail if +term1+ consumed
 only +1 + 2+), the simple +3 - 2 - 1+ would be erroneously parsed as +3 - (2 -
 1)+ instead of +(3 - 2) - 1+. To help with left associative operators, we need
 to group operators of same precedence and associativity and use a +repeat+
-parser, which associativity we are free to choose.
+parser, whose associativity we are free to choose.
 
 Here is a +binary_ops_reducer+ parser that takes a parser for binary operators
 of same associativity and precedence (here called +op+), and a parser for terms
 (called +term+), and returns either the left or right associativity parser. It
 is expected that the +term+ parser has higher precedence than +op+. It bears
 some resemblance with +repeat+ but does not discard the output of the separator
-(here: the operation) and build as a last stage the final result out of the
+(here: the operation) and builds as a last stage the final result out of the
 list of partial results, with the expected associativity.  This situation
 occurs often enough in practice that it's worth having a generic solution in
 the parser combinator library. It is made generic enough by the use of another
 parameter, the +reduce+ function, that combines two terms and an operator
-results into a value of the same type as returned by term. Notice that this may
+result into a value of the same type as returned by term. Notice that this may
 force the user of this +binary_ops_reducer+ function to `lift` the sub-term
 parser in order to return a singleton term instead (if the sub-terms and terms
 do not share a common type).
@@ -2669,7 +2668,7 @@ Let's also test the handling of precedence with a small calculator:
 ) ;
 ----
 
-Hopefully this example shed some confidence on parsing operators with any precedence and
+Hopefully this example gives some confidence in parsing operators with any precedence and
 associativity despite using parser combinators.
 
 == Configurations
@@ -2682,14 +2681,14 @@ position types ɣ.
 
 Let's define a proper persistent stream type adapted to networking.
 
-The stream should take its tokens from blocs chained together. Reception of a
+The stream should take its tokens from blocks chained together. Reception of a
 new block should append it at the end of the list (the pointer to the +next+
 block must be mutable), in such a way that when all streams are done with the
 first block of the chain no more pointers point to it and it can be reclaimed
 by the garbage collector.
 
 Most of the times we will want bytes in there, but for generality we must
-provide streams of token. We will therefore ask for another configuration
+provide streams of tokens. We will therefore ask for another configuration
 module providing the actual token container (maybe a +Buffer.t+, a +bytes+, an
 array or any indexed container) with a +nth+ function returning the token at
 some designated index. This configuration module must also provide the function
@@ -2746,7 +2745,7 @@ next pointer) but the stream itself is: a stream can be copied and reused
 later regardless of what other copies are doing.
 
 So the stream reader can either read the next available token (wrapped into a
-+ct+) or wait until the next buffer to be ready:
++ct+) or wait until the next buffer is ready:
 
 .ParsersConfig.ml: The take function
 [source,ml]
@@ -2771,10 +2770,10 @@ This is the problematic case. We have to request the next block, and add it to
 the chain of blocks so that other streams lagging behind us could also parse
 it in the future. Notice that given +read_buf+ is a blocking operation other
 threads could (and hopefully will) run while we wait. But none of those are
-competing parsers : despite we use threads to freeze the parsing at no point
+competing parsers: even though we use threads to freeze the parsing at no point
 are we actually having more than one parsing thread ; nowhere in the library
 have we spawned a new thread, and all other existing streams are in this
-thread own stack. This is not to say that one can not run two parsers
+thread's own stack. This is not to say that one cannot run two parsers
 simultaneously but then, of course, they will have to parse different streams.
 In other words, nothing else in the running program must be calling our
 +read_buf+ or we will miss some blocks. Hopefully that's obvious enough that
@@ -2830,7 +2829,7 @@ have the mutable address of the optional first block.
         take (Started { channel = u.channel ; block ; next = block.first }))
 ----
 
-We can now add a few more definitions in there so that this BlockList look more
+We can now add a few more definitions in there so that this BlockList looks more
 like a Parsers.CONFIG:
 
 .ParsersConfig.ml: turning it into an actual Parsers CONFIG
@@ -2979,7 +2978,7 @@ and therefore they return no position (or rather: a unit value). Those
 implementations can then be wrapped into another function that will compute
 and overwrite the position.
 
-Again, we need those wrapper to be pure from side effects as we may read the
+Again, we need those wrappers to be free of side effects as we may read the
 stream several times ; thus we cannot hide the required state in a closure.
 Instead we add the positioner state to the stream type.
 
@@ -3021,14 +3020,14 @@ end
 ----
 
 Another simple wrapper keeping track of the position as number of lines and
-columns must sneak at the obtained tokens (looking for newlines) and
+columns must peek at the obtained tokens (looking for newlines) and
 therefore works only with streams of characters:
 
 TODO:
 1. Parsers.CONFIG should have a function to turn a string into a stream.
-2. We should have a user-manual or a few simple easy functor for the end users.
+2. We should have a user-manual or a few simple easy functors for the end users.
 
-.ParsersPositions.ml: pairing a line number and column number with every characters
+.ParsersPositions.ml: pairing a line number and column number with every character
 [source,ml]
 ----
 type file_position = { offs : int ; line : int ; column : int }
