@@ -2317,6 +2317,10 @@ Notice that a simple base 10 integer number must start with a non 0
 (otherwise it's octal).  We make no exception for the single digit '0' which
 will be parsed as octal.
 
+All those parsers are greedy (they read as many digits as possible and favor
+the longest notations) so that they can be used within a larger grammar
+without introducing ambiguities.
+
 We use the +Num+ module from the standard library to represent arbitrary
 integers as we use it only to store the representation of numbers (if we
 cared about efficiency of arithmetic operations we would use +zarith+).
@@ -2342,14 +2346,14 @@ let num_of_char c =
 let unsigned_decimal_number ?what ?(inc_zero=true) m =
   let ten = Num.num_of_int 10 in
   let m = may_add_context m what in
-  let digits m = several_greedy ~sep:none decimal_digit m in
-  ((if inc_zero then decimal_digit else non_zero_decimal_digit) +-
-   optional ~def:' ' underscore ++
-   repeat_greedy ~sep:underscore digits >>:
+  (* Any digit but the first one may be preceded by an underscore: *)
+  let next_digit m =
+    (optional_greedy ~def:'_' underscore -+ decimal_digit) m in
+  ((if inc_zero then decimal_digit else non_zero_decimal_digit) ++
+   repeat_greedy ~sep:none next_digit >>:
    fun (first, next) ->
-   List.fold_left (fun c digits ->
      List.fold_left (fun c digit ->
-       Num.add (Num.mul c ten) (num_of_char digit)) c digits) Num.zero ([first]::next)) m
+       Num.add (Num.mul c ten) (num_of_char digit)) Num.zero (first::next)) m
 
 let signed neg p =
   p                                |||
@@ -2383,7 +2387,7 @@ zero of course), as in the Perl language.
 let non_decimal_integer base prefix digit =
   let base = Num.num_of_int base in
   let digits m = several_greedy ~sep:none digit m in
-  prefix -+ repeat ~sep:underscore ~what:"digits" digits >>:
+  prefix -+ repeat_greedy ~sep:underscore ~what:"digits" digits >>:
      List.fold_left (fun c digits ->
        List.fold_left (fun c digit ->
          Num.add (Num.mul c base) (num_of_char digit)) c digits) Num.zero
@@ -2425,11 +2429,13 @@ Finally, this parser can parse all kinds of integers seen so far:
 [source,ml]
 ----
 let integer m =
-  (decimal_number ~inc_zero:false |||
-   octal_number                   |||
-   hexadecimal_number             |||
-   binary_number) m
+  (hexadecimal_number |<|
+   binary_number      |<|
+   (decimal_number ~inc_zero:false ||| octal_number)) m
 ----
+
+Hexadecimal and binary numbers are tried first, as their prefix would
+otherwise be parsed as the octal number 0.
 
 .tests
 [source,ml]
@@ -2484,8 +2490,8 @@ floating point values.
 [source,ml]
 ----
 let fractional_part inv_base digit =
-  let digits m = several ~sep:none digit m in
-  several ~sep:underscore digits >>: fun digits ->
+  let digits m = several_greedy ~sep:none digit m in
+  several_greedy ~sep:underscore digits >>: fun digits ->
     List.fold_left (fun c_scale digits ->
         List.fold_left (fun (c, scale) digit ->
             let n = num_of_char digit |> Num.to_float in
@@ -2498,7 +2504,7 @@ let unsigned_decimal_fractional m =
   let dot m = item ~what:"fractional dot" '.' m in
   ((unsigned_decimal_number +- dot ++ fractional_part 0.1 decimal_digit) |||
    (return Num.zero +- dot ++ fractional_part 0.1 decimal_digit)         |||
-   (unsigned_decimal_number +- dot ++ return 0.) >>:
+   (unsigned_decimal_number +- dot +- nay decimal_digit ++ return 0.) >>:
        fun (n, p) -> Num.to_float n +. p
   ) m
 
@@ -2549,9 +2555,8 @@ let special_float m =
   ) m
 
 let floating_point m =
-  (decimal_fractional     |||
-   decimal_scientific     |||
-   hexadecimal_scientific |||
+  ((decimal_scientific |<| decimal_fractional) |||
+   hexadecimal_scientific                      |||
    special_float) m
 ----
 
@@ -2599,8 +2604,39 @@ And finally the parser of any immediate number:
 type number = Int of integer
             | Float of float
 let number m =
-  ((integer        >>: fun x -> Int x) |||
-   (floating_point >>: fun x -> Float x)) m
+  ((floating_point >>: fun x -> Float x) |<|
+   (integer        >>: fun x -> Int x)) m
+----
+
+Here again, floating point numbers are tried first as their integral part
+would otherwise be parsed as an integer.
+
+.tests
+[source,ml]
+----
+"numbers are parsed greedily" >:: (
+  fun _ctx ->
+    (* Without eof, only the longest parse must be returned: *)
+    let assert_greedy print p (input, output) =
+      assert_same_results print
+        (None, [output, no_corr, (String.length input, [])])
+        (p [] None no_corr (stream_of_string input)) in
+    [ "42", 42 ; "042", 0o42 ; "0x42", 0x42 ; "0b10", 0b10 ;
+      "0x4_2", 0x42 ; "1_2", 12 ] |>
+    List.iter (fun (i, o) -> assert_greedy Num.print integer (i, Num.num_of_int o)) ;
+    [ "3.14", 3.14 ; "3.1_4", 3.14 ; "1.5e3", 1500. ; "1.", 1. ] |>
+    List.iter (assert_greedy Float.print floating_point) ;
+    let print_number oc = function
+      | Int n -> Num.print oc n
+      | Float f -> Float.print oc f in
+    [ "3.14", Float 3.14 ; "1e3", Float 1000. ; "0x1p3", Float 8. ;
+      "42", Int (Num.num_of_int 42) ] |>
+    List.iter (assert_greedy print_number number) ;
+    (* Trailing underscores are not part of a number: *)
+    assert_same_results Num.print
+      (None, [Num.num_of_int 1, no_corr, (1, ['_'])])
+      (integer [] None no_corr (stream_of_string "1_"))
+) ;
 ----
 
 === Operations
