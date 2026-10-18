@@ -35,3 +35,5 @@ ParsersConfig.ml
 README.html
 helpers.cache
 opam
+ocaml-parsercombinator.scm
+.depend.tmp
