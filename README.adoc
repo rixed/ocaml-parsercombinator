@@ -1065,20 +1065,26 @@ exception Reject of string
 
 let map p f m e c s =
   ct_bind (p m e c s) (fun (e', results) ->
-    let rejection = ref None in
+    let rejections = ref [] in
     let results' =
       List.filter_map (fun (x, corr, rest) ->
         try Some (f x, corr, rest)
         with Reject msg ->
-          if !rejection = None then
-            rejection := Some msg ;
+          rejections := (msg, rest) :: !rejections ;
           None) results in
-    match !rejection with
-    | None -> ct_return (e', results')
-    | Some msg ->
-      ct_bind (take s) (fun (pos, _, _) ->
-        ct_return (new_error pos (msg::m) e', results')))
+    let e'' =
+      List.fold_left (fun prev (msg, rest) ->
+        ct_bind prev (fun e ->
+          ct_bind (take rest) (fun (pos, _, _) ->
+            ct_return (new_error pos (msg::m) e)))
+      ) (ct_return e') !rejections in
+    ct_bind e'' (fun e'' -> ct_return (e'', results')))
 ----
+
+Notice that rejections are located at the end of the rejected value rather
+than at its beginning, or they would always be superseded by any error met
+while parsing that value (such as the failure to find another digit at the end
+of a number).
 
 An infix operator makes it even more convenient:
 
@@ -1385,6 +1391,14 @@ With sequences and alternatives we can start writing some interesting tests:
     assert_same_results Char.print
       (Some { what = ["b"] ; where = 0 }, [])
       ((item 'a' |<| item 'b') [] None no_corr z)
+) ;
+"rejections are reported" >:: (
+  fun _ctx ->
+    let p = several_greedy ~sep:none decimal_digit >>: fun _ ->
+      raise (Reject "too big") in
+    assert_same_results Char.print
+      (Some { what = ["too big"] ; where = 2 }, [])
+      (p [] None no_corr (stream_of_string "77"))
 ) ;
 "greedy alternative with corrections" >:: (
   fun _ctx ->
