@@ -2259,6 +2259,7 @@ let quoted_char ?(base_num=8) ?(what="character") =
        fun lst ->
          let n =
            List.fold_left (fun s c -> s * base_num + c) 0 lst in
+         if n > 255 then raise (Reject "character code below 256") ;
          Char.chr n) |||
     ((* hexadecimal escape sequence: *)
      char ~what:"x" 'x' -+
@@ -2525,6 +2526,7 @@ let hexadecimal_scientific m =
    sign ++
    several_greedy ~sep decimal_digit >>:
    fun ((((s1, m), n), s2), e) ->
+     if m = [] && n = [] then raise (Reject "hexadecimal digits") ;
      let print_lst oc lst =
        List.print ~first:"" ~last:"" ~sep:"" Char.print oc lst in
      Printf.sprintf2 "%c0x%a.%ap%c%a"
@@ -2573,6 +2575,19 @@ let floating_point m =
       assert_same_results Float.print
         (None, [output, no_corr, (String.length input, [])])
         ((floating_point +- eof) [] None no_corr (stream_of_string input)))
+) ;
+"invalid numbers are rejected" >:: (
+  fun _ctx ->
+    (* Rather than raising exceptions: *)
+    assert_same_results String.print
+      (None, [])
+      ((quoted_string +- eof) [] None no_corr (stream_of_string "\"\\777\"")) ;
+    assert_same_results Float.print
+      (None, [])
+      ((floating_point +- eof) [] None no_corr (stream_of_string "0xp1")) ;
+    assert_same_results Float.print
+      (None, [])
+      ((floating_point +- eof) [] None no_corr (stream_of_string "0x.p1"))
 ) ;
 ----
 
