@@ -1860,26 +1860,39 @@ val parsed_fewer_than : int -> position -> position -> bool
 [[type-generalization]]
 === Type generalization
 
-Let's get back to why we haven't defined +none+ simply as +let none = return
-()+, letting automatic currying lighten the syntax:
+Let's get back to why we have defined +none+ as +let none m = return () m+
+rather than simply +let none = return ()+, letting automatic currying lighten
+the syntax.
+
+In this very case the shorter version would actually be accepted, but only
+because the +Parsers.S+ signature forces the type of +none+ to be +unit t+.
+Without such a signature, a partial application whose type has type variables
+would be rejected; for instance:
 
 ----
-# let none = return ();;
-             ^^^^^^^^^
-Error: The type of this expression, ('_a, unit, '_b) t,
+module Make (P : Parsers.S) =
+struct
+  open P
+  let opt_none = optional ~def:None
+end
+----
+
+----
+Error: The type of this module,
+       functor (P : Parsers.S) ->
+         sig val opt_none : '_weak1 option P.t -> '_weak1 option P.t end,
        contains type variables that cannot be generalized
 ----
 
 This is actually a limitation of the OCaml compiler. Here is what's happening:
 normally, in an expression like +let name = expr+, +expr+ will be typed first,
-leading in this case where +expr+ is actually +return ()+ to the type +('_a,
-unit, '_b) t+ (where +'_a+ and +'_b+ are ``weak types'' (refer to the
-definition of +return+: it's merely a function of 3 parameters returning a list
-of the triplet of these 3 parameters). Once +expr+ is typed, OCaml follows this
-rule: if +expr+ is a function (as in +function ... ->+), a constant or an
-identifier then generalize the weak types into universal types (the more
-familiar +'a+, +'b+ etc). If +expr+ is anything fancier, though, such as a
-partial application as is the case here, then do not generalize.
+leading in this case where +expr+ is +optional ~def:None+ to the type
++'_weak1 option t -> '_weak1 option t+, where +'_weak1+ is a ``weak type''.
+Once +expr+ is typed, OCaml follows this rule: if +expr+ is a function (as in
++function ... ->+), a constant or an identifier then generalize the weak types
+into universal types (the more familiar +'a+, +'b+ etc). If +expr+ is anything
+fancier, though, such as a partial application as is the case here, then do
+not generalize.
 
 If instead we had +let name params... = expr+ then, given it's syntactic sugar
 for +let name = function ... -> expr+ then the ``weak types'' would have been
@@ -2095,7 +2108,7 @@ Thanks to the +stream_of_string+ function we can also devise a very simple to
 use +of_string+ function for any parser, that would come in handy for testing
 or other simple circumstances.
 
-.Parser library: printers
+.Parser library: simple string scanners
 [source,ml]
 ----
 let of_string p str =
@@ -2114,7 +2127,7 @@ result without further ado. Notice that, for the sake of simplicity, we don't
 force a +print_output+ argument so the error report will not be as detailed as
 the one given by +print_result+:
 
-.Parser library: printers
+.Parser library: simple string scanners
 [source,ml]
 ----
 exception ParseError of string
@@ -2321,7 +2334,7 @@ All those parsers are greedy (they read as many digits as possible and favor
 the longest notations) so that they can be used within a larger grammar
 without introducing ambiguities.
 
-We use the +Num+ module from the standard library to represent arbitrary
+We use the +Num+ module (from the +num+ library) to represent arbitrary
 integers as we use it only to store the representation of numbers (if we
 cared about efficiency of arithmetic operations we would use +zarith+).
 
@@ -2846,7 +2859,7 @@ associativity despite using parser combinators.
 
 Here are provided some +Parsers.CONFIG+ implementing more complex parsers
 than the +SimpleConfig+ (that was tailored for unit tests) and a few simple
-position types ɣ.
+position types.
 
 === Turning destructive reads into persistent streams
 
@@ -3157,7 +3170,7 @@ end
 
 This configuration assumes that it is OK to block when reading tokens (assuming
 the parser runs in its own POSIX thread for instance). It's given as a
-configuration a mere +in_channel+ from which bytes (tokens) will be read.
+configuration a mere +Unix.file_descr+ from which bytes (tokens) will be read.
 
 .ParsersConfig.ml: Reading a file using normal blocking Unix read
 [source,ml]
@@ -3254,9 +3267,8 @@ Another simple wrapper keeping track of the position as number of lines and
 columns must peek at the obtained tokens (looking for newlines) and
 therefore works only with streams of characters:
 
-TODO:
-1. Parsers.CONFIG should have a function to turn a string into a stream.
-2. We should have a user-manual or a few simple easy functors for the end users.
+TODO: We should have a user-manual or a few simple easy functors for the end
+users.
 
 .ParsersPositions.ml: pairing a line number and column number with every character
 [source,ml]
