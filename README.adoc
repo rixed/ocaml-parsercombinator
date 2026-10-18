@@ -623,12 +623,17 @@ parser as parameter. It checks that the given parser succeeds but then returns
 the input stream unchanged (with a +unit+ result). The only thing interesting
 is that it explores forcing a success in case the check fails.
 
+Notice that +p+ must be run with no error correction: given some budget, +p+
+would always pretend to succeed and the check could never fail. Its
+corrections would also be lost, since +check+ discards +p+ results. It is
+therefore the +check+ itself that is forced to succeed instead.
+
 .Parser library: check
 [source,ml]
 ----
 let check ?(what="check") p m e c s =
   let m = what::m in
-  ct_bind (p m e c s) (function
+  ct_bind (p m e no_error_correction s) (function
     | e', [] -> fail_or_maybe_not () m e' c s
     | e', _ -> return () m e' c s)
 ----
@@ -647,12 +652,15 @@ result) especially in coordination with +check+ is the negation:
 ----
 let nay p m e c s =
   let m = "nay"::m in
-  ct_bind (p m e c s) (function
+  ct_bind (p m e no_error_correction s) (function
     | e', [] -> return () m e' c s
     | e', _ -> fail_or_maybe_not () m e' c s)
 ----
 
 So that we could write +check (nay p)+.
+
+As with +check+, +p+ runs with no error correction, for otherwise it would
+always succeed and +nay p+ would always fail.
 
 Notice that when `nay` succeeds, ie when `p` fails, the stream of input tokens
 `s` is _not_ advanced (it does not consume any input).  Indeed, we do not know
@@ -999,6 +1007,23 @@ val range : token -> token -> string -> token t
          rest (* since we add X in front of rest *) ])
       (item 'X' [] None corr rest)
 ) ;
+"check and nay with corrections" >:: (
+  fun _ctx ->
+    (* Genuine outcomes need no correction: *)
+    assert_same_results Unit.print
+      (None, [(), corr, rest])
+      (check (item 'g') [] None corr rest) ;
+    assert_same_results Unit.print
+      (None, [(), corr, rest])
+      (nay (item 'X') [] None corr rest) ;
+    (* Otherwise it's the check or nay itself that's corrected: *)
+    assert_same_results Unit.print
+      (None, [(), correction_at 0 (Item 'g') "check", rest])
+      (check (item 'X') [] None corr rest) ;
+    assert_same_results Unit.print
+      (None, [(), correction_at 0 (Item 'g') "nay", rest])
+      (nay (item 'g') [] None corr rest)
+) ;
 ----
 
 == Modifying parsers result
@@ -1253,15 +1278,29 @@ val (|/|)  : 'b t -> 'b t -> 'b t
 
 Finally, we can introduce a _left-leaning_ version of +oneof+ that would try
 +p2+ only if +p1+ fails. This can considerably speed up parsing at places where
-the grammar is unambiguous:
+the grammar is unambiguous.
+
+Beware though that when error correction is enabled +p1+ never fails, but
+pretends to succeed with some corrections. Such a made-up success must not
+prevent +p2+ from being tried, so we must tell genuine successes, that
+required no additional correction, from corrected ones:
+
+.Parser library: genuine results
+[source,ml]
+----
+let has_genuine_result c r =
+  let n = ParsersBoundedSet.size c in
+  List.exists (fun (_, c', _) -> ParsersBoundedSet.size c' = n) r
+----
 
 .Parser library: left-leaning oneof
 [source,ml]
 ----
 let oneof_greedy p1 p2 m e c s =
-  ct_bind (p1 m e c s) (fun (e', r) ->
-    if r <> [] then ct_return (e', r) else
-    ct_bind (p2 m e' c s) (fun (e'', r) ->
+  ct_bind (p1 m e c s) (fun (e', r1) ->
+    if has_genuine_result c r1 then ct_return (e', r1) else
+    ct_bind (p2 m e' c s) (fun (e'', r2) ->
+      let r = List.rev_append r1 r2 in
       ct_bind (take s) (fun (pos, _, _) ->
         let e''' = if r = [] then new_error pos m e''
                              else e'' in
@@ -1318,6 +1357,19 @@ With sequences and alternatives we can start writing some interesting tests:
         'b', correction_at 0 (Item 'z') "b", z])
       (a_or_b [] None corr z)
 ) ;
+"greedy alternative with corrections" >:: (
+  fun _ctx ->
+    let b = stream_of_string "b" in
+    (* A genuine 'a' does not need 'b' to be tried: *)
+    assert_same_results Char.print
+      (None, ['a', corr, (1,[])])
+      ((item 'a' |<| item 'b') [] None corr (stream_of_string "a")) ;
+    (* But a made-up 'a' must not prevent 'b' from being found: *)
+    assert_same_results Char.print
+      (None, ['a', correction_at 0 (Item 'b') "a", b ;
+              'b', corr, (1,[])])
+      ((item 'a' |<| item 'b') [] None corr b)
+) ;
 ----
 
 == Repeating parsers
@@ -1334,13 +1386,14 @@ or one occurrence of +p+:
 ----
 let optional ~def p = p ||| return def
 let optional_greedy ~def p m e c s =
-  ct_bind (p m e c s) (function
-    | e', [] -> ct_return (e', [def, c, s])
-    | x -> ct_return x)
+  ct_bind (p m e c s) (fun (e', r as x) ->
+    if has_genuine_result c r then ct_return x
+    else ct_return (e', (def, c, s) :: r))
 ----
 
 The +optional_greedy+ above is to avoid considering not consuming a matching
-token as a possible solution.
+token as a possible solution. As with +oneof_greedy+, only a genuine success
+of +p+ rules out the default.
 
 .Parser signature
 [source,ml]
@@ -1384,7 +1437,12 @@ Which behavior we'd better test:
       ((opt_char 'a' ++ item 'b') [] None no_corr b) ;
     assert_same_results (Tuple2.print Char.print Char.print)
       (None, [('b', 'x'), no_corr, (1,[])])
-      ((opt_char 'b' ++ opt_char 'b') [] None no_corr b)
+      ((opt_char 'b' ++ opt_char 'b') [] None no_corr b) ;
+    (* A made-up 'a' must not rule out the default: *)
+    assert_same_results Char.print
+      (None, ['a', correction_at 0 (Item 'b') "a", b ;
+              'x', corr, b])
+      (opt_char 'a' [] None corr b)
 ) ;
 ----
 
@@ -1803,13 +1861,14 @@ let make max_size =
   { size = 0 ; max_size ; items = [] }
 ----
 
-And the only three operations we've met so far:
+And the only four operations we've met so far:
 
 .ParsersBoundedSet.ml: operations
 [source,ml]
 ----
 let is_full t = t.size >= t.max_size
 let is_empty t = t.size = 0
+let size t = t.size
 
 let add t x =
   { t with size = t.size + 1 ;
