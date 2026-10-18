@@ -3289,11 +3289,29 @@ struct
           if tok = '\n' then (pos.line+1, 1)
           else (pos.line, pos.column+1) in
         let pos' = { offs = pos.offs + 1 ; line ; column } in
-        ct_return (pos', Item tok, (stream', pos'))
+        ct_return (pos, Item tok, (stream', pos'))
       | _, EndOfStream, stream' ->
         ct_return (pos, EndOfStream, (stream', pos)))
   let stream_of_string str =
     let start_pos = { offs = 0 ; line = 1 ; column = 1 } in
     Conf.stream_of_string str, start_pos
 end
+----
+
+Notice that, like +Offset+, +take+ returns the position of the token it
+returns, while the stream carries the position of the next one.
+
+.tests
+[source,ml]
+----
+"line and column positions" >:: (
+  fun _ctx ->
+    let module PL =
+      Parsers.Make (ParsersPositions.LineCol (Parsers.SimpleConfig (Char))) in
+    let p = PL.(item 'a' ++ item '\n' ++ item 'X') in
+    let e, _ = p [] None no_corr (PL.stream_of_string "a\nb") in
+    assert_equal ~printer:dump
+      (Some ParsersPositions.{ offs = 2 ; line = 2 ; column = 1 })
+      (Option.map (fun e -> e.PL.where) e)
+) ;
 ----
