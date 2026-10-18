@@ -30,7 +30,8 @@ README.annot: $(GEN_SOURCES:.ml=.annot)
 .gensource_stamp: README.adoc
 	ocamlfind portia/portia -ignore-missing -libdir "$$(ocamlfind query portia)" -syntax asciidoc -syntax ocaml $<
 	@touch $@
-$(GEN_SOURCES): .gensource_stamp
+# The empty recipe makes make check the sources' new mtimes after portia ran
+$(GEN_SOURCES): .gensource_stamp ;
 
 include $(top_srcdir)/make.common
 
@@ -105,6 +106,7 @@ dep:
 	$(MAKE) .depend
 
 .depend: $(GEN_SOURCES)
-	$(OCAMLDEP) -package "$(REQUIRES)" $(filter %.ml, $(GEN_ARC_SOURCES)) $(filter %.mli, $(GEN_ARC_SOURCES)) > $@
+	$(OCAMLDEP) -package "$(REQUIRES)" $(filter %.ml, $(GEN_ARC_SOURCES)) $(filter %.mli, $(GEN_ARC_SOURCES)) > $@.tmp
+	mv $@.tmp $@
 
 -include .depend
