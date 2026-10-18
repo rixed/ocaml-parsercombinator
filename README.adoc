@@ -1827,11 +1827,15 @@ let dismiss_error_if cond p m e c s =
   let start_err = e in
   ct_bind (p m e c s) (fun (e', r as res) ->
     ct_bind (take s) (fun (start_pos, _, _) ->
-      if e' <> start_err && cond start_pos (Option.get e').where then
+      if e' != start_err && cond start_pos (Option.get e').where then
         ct_return (start_err, r)
       else
         ct_return res))
 ----
+
+Errors being only ever replaced and never modified, physical inequality is
+enough to detect a new error (and works for any position type, whereas
+structural comparison would fail on functional values).
 
 ...where +cond+ is the condition dictating the dismissal of the new error, and
 for which a simple implementation can be proposed that just considers how many
