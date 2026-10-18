@@ -2892,14 +2892,18 @@ struct
     { buffer : buf ;
       first : int ; (* <1> *)
       last : int ;
-      mutable next_block : block option }
+      mutable next_block : next }
 
-  type stream = Unstarted of { channel : channel ; mutable first_block : block option }
-              | Started of { channel : channel ; block : block ; next : int (* <2> *) }
+  and next = Unknown (* <2> *)
+           | Next of block
+           | End
+
+  type stream = Unstarted of { channel : channel ; mutable first_block : next }
+              | Started of { channel : channel ; block : block ; next : int (* <3> *) }
               | Finished
 
   let make_stream channel =
-    Unstarted { channel ; first_block = None }
+    Unstarted { channel ; first_block = Unknown }
 
   let print_stream fmt = function
     | Unstarted _ -> Printf.fprintf fmt "Unstarted"
@@ -2909,11 +2913,28 @@ struct
 
 <1> These first and last indexes are fixed. They tell us where in the buffer
 we should start and stop reading ; this is not the stream pointer!
-<2> This is the stream pointer.
+<2> What follows a block is unknown until it's been read. Then it's either
+another block or the end of the stream, which must be remembered as well since
+the channel must not be read again once it signaled its end.
+<3> This is the stream pointer.
 
 Notice that the chain of blocks is not persistent (because of the mutable
 next pointer) but the stream itself is: a stream can be copied and reused
 later regardless of what other copies are doing.
+
+Reading what comes next from the channel, be it a new block or the end of the
+stream, is done by this function:
+
+.ParsersConfig.ml: reading the next block
+[source,ml]
+----
+  let read_next channel =
+    ct_bind (read_buf channel) (function
+      | None ->
+        ct_return End
+      | Some (buffer, first, last) ->
+        ct_return (Next { buffer ; first ; last ; next_block = Unknown }))
+----
 
 So the stream reader can either read the next available token (wrapped into a
 +ct+) or wait until the next buffer is ready:
@@ -2932,9 +2953,11 @@ So the stream reader can either read the next available token (wrapped into a
           Started { s with next = s.next+1 })
       else (
         match s.block.next_block with
-        | Some block ->
+        | Next block ->
           take (Started { s with block = block ; next = block.first })
-        | None ->
+        | End ->
+          ct_return ((), EndOfStream, Finished)
+        | Unknown ->
 ----
 
 This is the problematic case. We have to request the next block, and add it to
@@ -2955,12 +2978,7 @@ So let's call +read_buf+ and wait, confident that nothing bad will happen:
 .ParsersConfig.ml: take next token from next block
 [source,ml]
 ----
-          ct_bind (read_buf s.channel) (function
-          | None ->
-            ct_return ((), EndOfStream, Finished)
-          | Some (buffer, first, last) ->
-            let next_block = { buffer ; first ; last ;
-                               next_block = None } in
+          ct_bind (read_next s.channel) (fun next ->
 ----
 
 Of course it costs nothing to check the above assumption:
@@ -2968,10 +2986,9 @@ Of course it costs nothing to check the above assumption:
 .ParsersConfig.ml: enqueue this block for laggers and retry
 [source,ml]
 ----
-            assert (s.block.next_block = None) ;
-            s.block.next_block <- Some next_block ;
-            take stream
-        ))
+            assert (s.block.next_block = Unknown) ;
+            s.block.next_block <- next ;
+            take stream))
 ----
 
 The case where the stream is not started yet is interesting: this stream has to
@@ -2979,25 +2996,68 @@ be shareable as well, but we must have only one instance of the pointer to the
 next block (so that when one instance triggers the actual read all other
 instances can find the data) and we do not want to keep a pointer to the head
 of the list forever (we want the list to be garbage collected). So we merely
-have the mutable address of the optional first block.
+have the mutable address of what comes first.
 
 .ParsersConfig.ml: take from the head of the stream
 [source,ml]
 ----
     | Unstarted u as stream ->
       (match u.first_block with
-      | None ->
-        ct_bind (read_buf u.channel) (function
-        | None ->
-          ct_return ((), EndOfStream, Finished)
-        | Some (buffer, first, last) ->
-          let next_block = { buffer ; first ; last ;
-                             next_block = None } in
-          assert (u.first_block = None) ;
-          u.first_block <- Some next_block ;
+      | Unknown ->
+        ct_bind (read_next u.channel) (fun next ->
+          assert (u.first_block = Unknown) ;
+          u.first_block <- next ;
           take stream)
-      | Some block ->
-        take (Started { channel = u.channel ; block ; next = block.first }))
+      | Next block ->
+        take (Started { channel = u.channel ; block ; next = block.first })
+      | End ->
+        ct_return ((), EndOfStream, Finished))
+----
+
+Let's check that the channel is never read again after its end, even by
+streams lagging behind, using a fake channel that counts how many times it's
+read:
+
+.other global functions or types for testing
+[source,ml]
+----
+module FakeChannel =
+struct
+  type 'a ct = 'a
+  let ct_return x = x
+  let ct_bind x f = f x
+  type token = char
+  let print_token = Char.print
+  type buf = string
+  let nth = String.get
+  type channel = { mutable chunks : string list ; mutable reads : int }
+  let read_buf ch =
+    ch.reads <- ch.reads + 1 ;
+    match ch.chunks with
+    | [] -> None
+    | chunk :: rest ->
+      ch.chunks <- rest ;
+      Some (chunk, 0, String.length chunk)
+end
+
+module FakeBlocks = ParsersConfig.BlockList (FakeChannel)
+module PFake = Parsers.Make (FakeBlocks)
+----
+
+.tests
+[source,ml]
+----
+"block lists remember the end of stream" >:: (
+  fun _ctx ->
+    (* Returns the number of results and of reads: *)
+    let parse chunks p =
+      let ch = FakeChannel.{ chunks ; reads = 0 } in
+      let _e, r = p [] None no_corr (FakeBlocks.make_stream ch) in
+      List.length r, ch.FakeChannel.reads in
+    let a_eof = PFake.(item 'a' -- eof) in
+    assert_equal ~printer:dump (2, 2) (parse ["a"] PFake.(a_eof ||| a_eof)) ;
+    assert_equal ~printer:dump (2, 1) (parse [] PFake.(eof ||| eof))
+) ;
 ----
 
 We can now add a few more definitions in there so that this BlockList looks more
