@@ -54,7 +54,9 @@ ifeq ("@HAVE_OUNIT@", "yes")
 
 unit-tests: test.opt
 	@echo "Running other unit tests"
+	@$(RM) $(wildcard oUnit-test*)
 	@./test.opt
+
 check: unit-tests
 
 test.cmx: test.ml $(XARCHIVES)
