@@ -1,0 +1,40 @@
+; vim: ft=scheme expandtab
+(use-modules
+  (guix packages)
+	(guix download)
+	(guix licenses)
+	(guix build-system gnu)
+	(guix git-download)
+  (gnu packages)
+  (gnu packages ocaml))
+
+(package
+  (name "ocaml-parsercombinator")
+  (version "@PACKAGE_VERSION@")
+  (home-page "https://github.com/rixed/ocaml-parsercombinator")
+  (source
+    (origin
+	    (method git-fetch)
+	    (uri
+	      (git-reference
+          (url home-page)
+          (commit (string-append "v" version))))
+      (sha256
+        (base32 "06yx7423ij4n6myg0hgijxw3js8xmf4zwjy2ixqq1bj1qzfn6lsp"))))
+  (native-inputs
+    `(("batteries" ,ocaml-batteries)
+      ("findlib" ,ocaml-findlib)
+      ("lwt" ,ocaml-lwt)
+      ("ocaml" ,ocaml)
+      ("ounit" ,ocaml-ounit)
+      ("portia" ,portia)))
+  (synopsis "Resumable combinatoric parser with error detection")
+  (description
+    (string-append
+      "Difference with other combinatoric parsers for OCaml: "
+      "abstract and flexible input of tokens (could be anything including "
+      "LWT promises), and can suggest fixes on parse errors. It is a very "
+      "slow parser, though."))
+  (license agpl3+)
+  (build-system gnu-build-system))
+

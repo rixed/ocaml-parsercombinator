@@ -35,5 +35,10 @@ AS_IF([test "$OCAML_PKG_oUnit" = "no"], [
 ])
 AC_SUBST([HAVE_OUNIT], ["$have_ounit"])
 
-AC_CONFIG_FILES([Makefile make.common opam])
+AC_CONFIG_FILES([
+  Makefile
+  make.common
+  opam
+  ocaml-parsercombinator.scm
+])
 AC_OUTPUT

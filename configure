@@ -3801,7 +3801,7 @@ fi
 HAVE_OUNIT="$have_ounit"
 
 
-ac_config_files="$ac_config_files Makefile make.common opam"
+ac_config_files="$ac_config_files Makefile make.common opam ocaml-parsercombinator.scm"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -4511,6 +4511,7 @@ do
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
     "make.common") CONFIG_FILES="$CONFIG_FILES make.common" ;;
     "opam") CONFIG_FILES="$CONFIG_FILES opam" ;;
+    "ocaml-parsercombinator.scm") CONFIG_FILES="$CONFIG_FILES ocaml-parsercombinator.scm" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac
