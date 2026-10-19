@@ -586,6 +586,20 @@ A similarly simple one is the parser that always fails:
 let fail _m e _c _s = ct_return (e, [])
 ----
 
+Most combinators take some parameters and return a parser, which is then given
+its four arguments at once. If such a combinator were written with all its
+parameters, as in +let map p f m e c s+, then +map p f+ would be a partial
+application and every run of the resulting parser would have to go through
+OCaml's generic (and allocating) application of curried functions. Combinators
+therefore return their parser as a closure of its own, which the compiler would
+merge back into the combinator if we did not hide it behind an opaque identity:
+
+.Parser library: parsers as closures
+[source,ml]
+----
+let as_parser (p : 'b t) = Sys.opaque_identity p
+----
+
 with signatures:
 
 .Parser signature
@@ -605,11 +619,10 @@ exhausted already. We will abstract this in a +fail_or_maybe_not+ function:
 ----
 open ParsersCorrections
 
-let fail_or_maybe_not x (* <1> *) m e c s =
+let fail_or_maybe_not_at pos tok x (* <1> *) m e c s =
   if ParsersBoundedSet.is_full c then (
     (* no more errors permitted so fail for real *)
-    ct_bind (take s) (fun (pos, _, _) ->
-      fail m (new_error pos m e) c s)
+    fail m (new_error pos m e) c s
   ) else (
     (* Here we insert x in the stream ;
        Shall we also try to replace pos_tok with x?
@@ -617,14 +630,20 @@ let fail_or_maybe_not x (* <1> *) m e c s =
        TODO: two types of correction: replace and insert *)
     (* Note that corrections still count as errors because there is no
        guarantee that we will keep track of them: *)
-    ct_bind (take s) (fun (pos, tok, _) ->
-      return x m (new_error pos m e) (change_at c pos tok m) s))
+    return x m (new_error pos m e) (change_at c pos tok m) s)
+
+let fail_or_maybe_not x m e c s =
+  ct_bind (take s) (fun (pos, tok, _) ->
+    fail_or_maybe_not_at pos tok x m e c s)
 ----
 
 <1> Here we need an example value +x+ of type β in order to change the outcome
 of a failure. Which value exactly is not really a concern since only its type
 matters (although the error message could print it as an example, as OCaml
 compiler does when complaining about an incomplete pattern matching).
+
++fail_or_maybe_not_at+ is the same for parsers that have already read the
+position +pos+ of +s+ and the token +tok+ found there.
 
 Another parser that does not consume any input is the +check+ parser that we
 have mentioned earlier. It is actually a combinator since it takes another
@@ -640,7 +659,7 @@ therefore the +check+ itself that is forced to succeed instead.
 .Parser library: check
 [source,ml]
 ----
-let check ?(what="check") p m e c s =
+let check ?(what="check") p = as_parser @@ fun m e c s ->
   let m = what::m in
   ct_bind (p m e no_error_correction s) (function
     | e', [] -> fail_or_maybe_not () m e' c s
@@ -659,7 +678,7 @@ result) especially in coordination with +check+ is the negation:
 .Parser library: negation
 [source,ml]
 ----
-let nay p m e c s =
+let nay p = as_parser @@ fun m e c s ->
   let m = "nay"::m in
   ct_bind (p m e no_error_correction s) (function
     | e', [] -> return () m e' c s
@@ -931,15 +950,15 @@ boolean:
 .Parser library: cond_map
 [source,ml]
 ----
-let cond_map expl f x m e c s =
+let cond_map expl f x = as_parser @@ fun m e c s ->
   let m = expl::m in
   ct_bind (take s) (function
-    | _pos, EndOfStream, _ ->
-      fail_or_maybe_not x m e c s
-    | _pos, Item tok, s' ->
-      (match f tok with
+    | pos, (EndOfStream as tok), _ ->
+      fail_or_maybe_not_at pos tok x m e c s
+    | pos, (Item t as tok), s' ->
+      (match f t with
        | Some v -> return v m e c s'
-       | None   -> fail_or_maybe_not x m e c s))
+       | None   -> fail_or_maybe_not_at pos tok x m e c s))
 ----
 
 .Parser signature
@@ -969,15 +988,34 @@ behavior in the face of an inequality operator makes sense):
 .Parser library: the item parser
 [source,ml]
 ----
+let is_immediate x = Obj.is_int (Obj.repr x)
+
 let item ?what x =
   let expl =
     Option.default_delayed (fun () ->
       Printf.sprintf2 "%a" print_token x) what in
-  cond expl ((=) x) x
+  let eq =
+    if is_immediate x then (fun t -> t == x)
+    else (fun t -> t = x) in
+  cond expl eq x
 
 let range a b expl =
-  cond expl (fun c -> c >= a && c <= b) a
+  let within =
+    if is_immediate a && is_immediate b then (
+      let a : int = Obj.magic a and b : int = Obj.magic b in
+      fun c ->
+        is_immediate c &&
+        (let c : int = Obj.magic c in c >= a && c <= b)
+    ) else (fun c -> c >= a && c <= b) in
+  cond expl within a
 ----
+
+Tokens being of an abstract type, comparing them is a call to OCaml's generic
+comparison. When the expected tokens are immediate values, such as characters,
+this is avoided by comparing their representations instead: an immediate value
+is structurally equal only to itself, and compares to any other immediate value
+as the integers they are represented by. This is only an optimization;
+the generic comparison is still used for other tokens.
 
 .Parser signature
 [source,ml]
@@ -1015,6 +1053,33 @@ val range : token -> token -> string -> token t
        [ 'X', correction_at 0 (Item 'g') "X",
          rest (* since we add X in front of rest *) ])
       (item 'X' [] None corr rest)
+) ;
+"item and range on tokens that are not immediate" >:: (
+  fun _ctx ->
+    let module PS = Parsers.Make (struct
+      type 'a ct = 'a
+      let ct_return x = x
+      let ct_bind x f = f x
+      type token = string
+      let print_token = String.print
+      type position = int
+      let distance p1 p2 = p2 - p1
+      let print_position = Int.print
+      type stream = position * token list
+      let print_stream fmt (_, s) = List.print String.print fmt s
+      let take = function
+        | (pos, []) as s -> pos, EndOfStream, s
+        | pos, (x::rest) -> pos, Item x, (pos+1, rest)
+      let stream_of_string s = 0, String.split_on_char ' ' s
+    end) in
+    let words = PS.stream_of_string "foo bar" in
+    let res p = match PS.to_result (p [] None no_corr words) with
+      | Ok (x, _) -> Some x
+      | Error _ -> None in
+    assert_equal (Some "foo") (res (PS.item "foo")) ;
+    assert_equal None (res (PS.item "bar")) ;
+    assert_equal (Some "foo") (res (PS.range "baz" "goo" "word")) ;
+    assert_equal None (res (PS.range "goo" "zoo" "word"))
 ) ;
 "check and nay with corrections" >:: (
   fun _ctx ->
@@ -1063,23 +1128,36 @@ exception to reject a solution:
 ----
 exception Reject of string
 
-let map p f m e c s =
-  ct_bind (p m e c s) (fun (e', results) ->
-    let rejections = ref [] in
-    let results' =
-      List.filter_map (fun (x, corr, rest) ->
-        try Some (f x, corr, rest)
-        with Reject msg ->
-          rejections := (msg, rest) :: !rejections ;
-          None) results in
-    let e'' =
-      List.fold_left (fun prev (msg, rest) ->
-        ct_bind prev (fun e ->
-          ct_bind (take rest) (fun (pos, _, _) ->
-            ct_return (new_error pos (msg::m) e)))
-      ) (ct_return e') !rejections in
-    ct_bind e'' (fun e'' -> ct_return (e'', results')))
+let map p f = as_parser @@ fun m e c s ->
+  let reject msg rest e =
+    ct_bind (take rest) (fun (pos, _, _) ->
+      ct_return (new_error pos (msg::m) e)) in
+  ct_bind (p m e c s) (function
+    | e', [] ->
+      ct_return (e', [])
+    | e', [ x, corr, rest ] ->
+      (match f x with
+      | y -> ct_return (e', [ y, corr, rest ])
+      | exception Reject msg ->
+        ct_bind (reject msg rest e') (fun e'' -> ct_return (e'', [])))
+    | e', results ->
+      let rejections = ref [] in
+      let results' =
+        Stdlib.List.filter_map (fun (x, corr, rest) ->
+          match f x with
+          | y -> Some (y, corr, rest)
+          | exception Reject msg ->
+            rejections := (msg, rest) :: !rejections ;
+            None) results in
+      let e'' =
+        List.fold_left (fun prev (msg, rest) ->
+          ct_bind prev (reject msg rest)
+        ) (ct_return e') !rejections in
+      ct_bind e'' (fun e'' -> ct_return (e'', results')))
 ----
+
+Parsers mostly return a single result or none, which are therefore dealt with
+without the general machinery.
 
 Notice that rejections are located at the end of the rejected value rather
 than at its beginning, or they would always be superseded by any error met
@@ -1121,16 +1199,21 @@ values of +p2+, +p1+ intermediary values being only meaningful to build +p2+.
 .Parser library: bind
 [source,ml]
 ----
-let bind p1 f m e c s =
-  ct_bind (p1 m e c s) (fun (e', r) ->
-    (* For each possible result of p1, try to continue parsing with p2.
-       Aggregate all encountered errors. *)
-    List.fold_left (fun prev (x1, c', s') ->
-        ct_bind prev (fun (e'', r') ->
-          let p2 = f x1 in
-          ct_bind (p2 m e'' c' s') (fun (e''', r'') ->
-            ct_return (e''', List.rev_append r'' r')))
-      ) (ct_return (e', [])) r)
+let bind p1 f = as_parser @@ fun m e c s ->
+  ct_bind (p1 m e c s) (function
+    | e', [] ->
+      ct_return (e', [])
+    | e', [ x1, c', s' ] ->
+      f x1 m e' c' s'
+    | e', r ->
+      (* For each possible result of p1, try to continue parsing with p2.
+         Aggregate all encountered errors. *)
+      List.fold_left (fun prev (x1, c', s') ->
+          ct_bind prev (fun (e'', r') ->
+            let p2 = f x1 in
+            ct_bind (p2 m e'' c' s') (fun (e''', r'') ->
+              ct_return (e''', List.rev_append r'' r')))
+        ) (ct_return (e', [])) r)
 ----
 
 With the conventional infix operator:
@@ -1139,6 +1222,48 @@ With the conventional infix operator:
 [source,ml]
 ----
 let (>>=) = bind
+----
+
+Recursive grammars cannot define their recursive rules as values (+let rec
+expr = ... expr ...+ is not allowed) and the usual workaround is to
+eta-expand them: +let rec expr m = (... expr ...) m+. This rebuilds the
+parser of +expr+ every time it runs, though. The +fix+ combinator instead
+builds a recursive parser once, from a function that receives the parser
+being defined:
+
+.Parser library: recursive parsers
+[source,ml]
+----
+let fix f =
+  let self = ref fail in
+  let p m e c s = !self m e c s in
+  self := f p ;
+  p
+----
+
+For instance: +let parens = fix (fun parens -> item '(' -+ optional ~def:() parens +- item ')')+.
+
+.Parser signature
+[source,ml]
+----
+val fix : ('b t -> 'b t) -> 'b t
+----
+
+.tests
+[source,ml]
+----
+"fix builds recursive parsers" >:: (
+  fun _ctx ->
+    (* Counts the nesting of balanced parentheses: *)
+    let depth = fix (fun depth ->
+      item '(' -+ optional ~def:0 depth +- item ')' >>: succ) in
+    assert_same_results Int.print
+      (None, [3, no_corr, (6,[])])
+      (depth [] None no_corr (stream_of_string "((()))")) ;
+    assert_same_results Int.print
+      (Some { what = [")"] ; where = 3 }, [])
+      (depth [] None no_corr (stream_of_string "(((")) ;
+) ;
 ----
 
 .Parser signature
@@ -1151,7 +1276,7 @@ val (>>=) : 'b t -> ('b -> 'd t) -> 'd t
 Given this +bind+ combinator, the concatenation of two given parsers +p1+ and
 +p2+ can be easily written as:
 
-.Parser library: succession of two parsers
+.Succession of two parsers, take 1
 [source,ml]
 ----
 let cons p1 p2 =
@@ -1160,6 +1285,38 @@ let cons p1 p2 =
 
 Here, we want the final result set to be the product of each result of +p1+
 with all following results of +p2+.
+
+Sequences being the most common construct, it pays off to build their results
+directly rather than through a +map+ inside a +bind+, which allocates a new
+parser for each result of +p1+. This also gives an opportunity to combine the
+two results with any function, so that the variants below that discard either
+result do not have to build the pair:
+
+.Parser library: succession of two parsers
+[source,ml]
+----
+let cons_with comb p1 p2 = as_parser @@ fun m e c s ->
+  let continue_from x1 e c' s' =
+    ct_bind (p2 m e c' s') (function
+      | e', [] -> ct_return (e', [])
+      | e', [ x2, c'', s'' ] -> ct_return (e', [ comb x1 x2, c'', s'' ])
+      | e', r ->
+        ct_return (e', List.map (fun (x2, c'', s'') ->
+                                   comb x1 x2, c'', s'') r)) in
+  ct_bind (p1 m e c s) (function
+    | e', [] ->
+      ct_return (e', [])
+    | e', [ x1, c', s' ] ->
+      continue_from x1 e' c' s'
+    | e', r ->
+      List.fold_left (fun prev (x1, c', s') ->
+          ct_bind prev (fun (e'', r') ->
+            ct_bind (continue_from x1 e'' c' s') (fun (e''', r'') ->
+              ct_return (e''', List.rev_append r'' r')))
+        ) (ct_return (e', [])) r)
+
+let cons p1 p2 = cons_with (fun x1 x2 -> x1, x2) p1 p2
+----
 
 We'd better have a shorter infix alternative for +cons+ which is used very
 often:
@@ -1187,9 +1344,9 @@ ignores the result of +p2+ and one that ignores both (returning +()+):
 .Parser library: other convenient infix operators
 [source,ml]
 ----
-let (+-) p1 p2 = p1 ++ p2 >>: fst
-let (-+) p1 p2 = p1 ++ p2 >>: snd
-let (--) p1 p2 = p1 ++ p2 >>: ignore
+let (+-) p1 p2 = cons_with (fun x1 _ -> x1) p1 p2
+let (-+) p1 p2 = cons_with (fun _ x2 -> x2) p1 p2
+let (--) p1 p2 = cons_with (fun _ _ -> ()) p1 p2
 ----
 
 .Parser signature
@@ -1253,16 +1410,16 @@ how _likely_ this parser is to fail late on random data.
 .Parser library: alternative
 [source,ml]
 ----
-let oneof p1 p2 m e c s =
+let oneof p1 p2 = as_parser @@ fun m e c s ->
   ct_bind (p1 m e c s) (fun (e', r) ->
     ct_bind (p2 m e' c s) (fun (e'', r') ->
-      match List.rev_append r r' with
-      | [] when m = [] ->
+      match List.rev_append r r', m with
+      | [], [] ->
         ct_return (e'', [])
-      | [] ->
+      | [], _ ->
         ct_bind (take s) (fun (pos, _, _) ->
           ct_return (new_error pos m e'', []))
-      | r'' ->
+      | r'', _ ->
         ct_return (e'', r'')))
 
 let (|||) = oneof
@@ -1318,17 +1475,17 @@ let has_genuine_result c r =
 .Parser library: left-leaning oneof
 [source,ml]
 ----
-let oneof_greedy p1 p2 m e c s =
+let oneof_greedy p1 p2 = as_parser @@ fun m e c s ->
   ct_bind (p1 m e c s) (fun (e', r1) ->
     if has_genuine_result c r1 then ct_return (e', r1) else
     ct_bind (p2 m e' c s) (fun (e'', r2) ->
-      match List.rev_append r1 r2 with
-      | [] when m = [] ->
+      match List.rev_append r1 r2, m with
+      | [], [] ->
         ct_return (e'', [])
-      | [] ->
+      | [], _ ->
         ct_bind (take s) (fun (pos, _, _) ->
           ct_return (new_error pos m e'', []))
-      | r ->
+      | r, _ ->
         ct_return (e'', r)))
 
 let (|<|) = oneof_greedy
@@ -1442,7 +1599,7 @@ or one occurrence of +p+:
 [source,ml]
 ----
 let optional ~def p = p ||| return def
-let optional_greedy ~def p m e c s =
+let optional_greedy ~def p = as_parser @@ fun m e c s ->
   ct_bind (p m e c s) (fun (e', r as x) ->
     if has_genuine_result c r then ct_return x
     else ct_return (e', (def, c, s) :: r))
@@ -1528,7 +1685,7 @@ successive +p+.
 By allowing +min+ to be +0+ (and making it the default value) we expect to
 cut down on the many +optional (repeat p)+ that we would have otherwise.
 
-.Parser library: repetition of a parser
+.Repetition of a parser, take 1
 [source,ml]
 ----
 let repeat ~sep ?(min=0) ?max ?what p m =
@@ -1569,6 +1726,36 @@ let repeat ~sep ?(min=0) ?max ?what p m =
 
 Notice there are two conditions that terminate the recursion: +max+ reaching
 +0+ (no more occurrences permitted) or, when +min > 0+, a failure of +p+.
+
+This builds new parsers at every step of the repetition though, which is
+expensive for a combinator as common as this one. Here is an equivalent
+version that walks the repetition directly, accumulating the occurrences
+of +p+ found so far:
+
+.Parser library: repetition of a parser
+[source,ml]
+----
+let repeat ~sep ?(min=0) ?max ?what p =
+  let sep_p = sep -+ p in
+  as_parser @@ fun m e c s ->
+    let m = match what with None -> m | Some w -> w::m in
+    (* All the ways to go on from [s], after the [n] occurrences in [xs]: *)
+    let rec loop n xs e c s =
+      let stop = if n >= min then [ List.rev xs, c, s ] else [] in
+      match max with
+      | Some ma when n >= ma ->
+        if n >= min then ct_return (e, stop) else
+        ct_bind (take s) (fun (pos, _, _) ->
+          ct_return (new_error pos m e, []))
+      | _ ->
+        ct_bind ((if n = 0 then p else sep_p) m e c s) (fun (e', r) ->
+          List.fold_left (fun prev (x, c', s') ->
+              ct_bind prev (fun (e'', r') ->
+                ct_bind (loop (n + 1) (x :: xs) e'' c' s') (fun (e''', r'') ->
+                  ct_return (e''', List.rev_append r'' r')))
+            ) (ct_return (e', stop)) r) in
+    loop 0 [] e c s
+----
 
 Notice also that repeat builds a whole list before sending it to the next
 stage.  We'd like to do away with this list which more often than not will be
@@ -1629,7 +1816,7 @@ let repeat_greedy ~sep ?min ?max ?what p =
 be more cautious not to allow an input stream starting with +p+ before
 returning +[]+:
 
-.Parser library: greedy repetition
+.Greedy repetition, take 1
 [source,ml]
 ----
 let rec repeat_greedy ~sep ?min ?max ?what p =
@@ -1640,6 +1827,52 @@ let rec repeat_greedy ~sep ?min ?max ?what p =
   | min ->
     repeat ~sep ?min ?max ?what p +- nay (sep -- p)
 ----
+
+This runs +p+ twice at every position: once to go on with the repetition and
+once to check, in +nay+, that the repetition cannot stop there. Unless some
+corrections are still permitted, these two runs of +p+ yield the same results
+(+nay+ runs +p+ with no error correction, while the corrections of the
+repetition itself are exhausted), so the repetition can instead stop at a
+position exactly when it cannot go on from there:
+
+.Parser library: greedy repetition
+[source,ml]
+----
+let rec repeat_greedy_with_nay ~sep ?min ?max ?what p =
+  match min with
+  | None | Some 0 ->
+    repeat_greedy_with_nay ~sep ~min:1 ?max ?what p |||
+    (nay p >>: fun () -> [])
+  | min ->
+    repeat ~sep ?min ?max ?what p +- nay (sep -- p)
+
+let repeat_greedy ~sep ?(min=0) ?max ?what p =
+  let with_nay = repeat_greedy_with_nay ~sep ~min ?max ?what p
+  and sep_p = sep -+ p in
+  as_parser @@ fun m e c s ->
+    if not (ParsersBoundedSet.is_full c) then with_nay m e c s else
+    let m = match what with None -> m | Some w -> w::m in
+    let rec loop n xs e c s =
+      ct_bind ((if n = 0 then p else sep_p) m e c s) (function
+        | e', [] ->
+          (* No more occurrences: *)
+          ct_return (e', if n >= min then [ List.rev xs, c, s ] else [])
+        | e', r ->
+          (match max with
+          | Some ma when n >= ma ->
+            (* There are more occurrences than permitted: *)
+            ct_return (e', [])
+          | _ ->
+            List.fold_left (fun prev (x, c', s') ->
+                ct_bind prev (fun (e'', r') ->
+                  ct_bind (loop (n + 1) (x :: xs) e'' c' s') (fun (e''', r'') ->
+                    ct_return (e''', List.rev_append r'' r')))
+              ) (ct_return (e', [])) r)) in
+    loop 0 [] e c s
+----
+
+Notice that, as with the definition using +nay+, a greedy repetition that
+could go on beyond +max+ fails.
 
 .Parser signature
 [source,ml]
@@ -1696,7 +1929,29 @@ val repeat_greedy :
        [['a';'a';'a'], no_corr, drop 5 a_a_a_b]) ;
     (* Do not allow a separator at start *)
     assert_ok ~greedy:true ~sep:underscore _a_a_a_b
-      (None, [[], no_corr, _a_a_a_b])
+      (None, [[], no_corr, _a_a_a_b]) ;
+    (* A greedy repetition that could go on beyond max fails: *)
+    assert_ok ~greedy:true ~sep:none ~max:2 aaab (None, []) ;
+    assert_ok ~greedy:true ~sep:none ~max:3 aaab
+      (None, [['a';'a';'a'], no_corr, drop 3 aaab]) ;
+    assert_ok ~greedy:true ~sep:none ~min:4 aaab (None, [])
+) ;
+"greedy repetition with corrections" >:: (
+  fun _ctx ->
+    (* With corrections permitted, the repetition may stop where it could
+       go on, or go on where it should stop, at the price of corrections: *)
+    let aab = stream_of_string "aab" in
+    let made_up_a n =
+      List.fold_left (fun c _ -> change_at c 2 (Item 'b') [ "a" ]) corr
+                     (List.init n identity) in
+    assert_same_results (List.print Char.print)
+      (None, [['a';'a'], corr, drop 2 aab ;
+              ['a'], correction_at 1 (Item 'a') "nay", drop 1 aab ;
+              [], correction_at 0 (Item 'a') "nay", aab ;
+              ['a';'a';'a'], made_up_a 1, drop 2 aab ;
+              ['a';'a';'a';'a'], made_up_a 2, drop 2 aab ;
+              ['a';'a';'a';'a';'a'], made_up_a 3, drop 2 aab])
+      (repeat_greedy ~sep:none (item 'a') [] None corr aab)
 ) ;
 "repetition: simplest failure" >:: (
   fun _ctx ->
@@ -1823,7 +2078,7 @@ a minimum distance from the starting position or +EndOfStream+.
 .Parser library: conditional dismissing of errors
 [source,ml]
 ----
-let dismiss_error_if cond p m e c s =
+let dismiss_error_if cond p = as_parser @@ fun m e c s ->
   let start_err = e in
   ct_bind (p m e c s) (fun (e', r as res) ->
     ct_bind (take s) (fun (start_pos, _, _) ->
@@ -2182,21 +2437,25 @@ alphanumerics, newlines...
 .usual parsers: character classes
 [source,ml]
 ----
-let blank m =
-  cond "blank" (fun c -> c = ' ' || c = '\t') ' ' m
+let blank =
+  cond "blank" (fun c -> c = ' ' || c = '\t') ' '
 
-let carriage_return m = item ~what:"carriage return" '\r' m
-let new_line m = item ~what:"new line" '\n' m
+let carriage_return = item ~what:"carriage return" '\r'
+let new_line = item ~what:"new line" '\n'
 
-let newline m =
-  (optional ~def:'\r' carriage_return -+ new_line) m
+let newline =
+  optional ~def:'\r' carriage_return -+ new_line
 
-let whitespace m =
-  repeat_greedy ~min:1 ~sep:none ~what:"whitespaces" (blank ||| newline) m
+let whitespace =
+  repeat_greedy ~min:1 ~sep:none ~what:"whitespaces" (blank ||| newline)
 
-let opt_whitespace m =
-  optional_greedy ~def:[] whitespace m
+let opt_whitespace =
+  optional_greedy ~def:[] whitespace
 ----
+
+Since the type of those parsers is fully known, they need not be eta-expanded
+(see <<type-generalization,type generalization>>) and are therefore built only
+once.
 
 Notice we read greedily the whitespaces because we want to avoid a +whitespace
 -- whitespace+ ambiguity. +optional_greedy+ is there for the same reason.
@@ -2204,11 +2463,11 @@ Notice we read greedily the whitespaces because we want to avoid a +whitespace
 .usual parsers: more character classes
 [source,ml]
 ----
-let lowercase m = range 'a' 'z' "lowercase" m
-let uppercase m = range 'A' 'Z' "uppercase" m
-let letter m = (lowercase ||| uppercase) m
-let decimal_digit m = range '0' '9' "digit" m
-let alphanum m = (letter ||| decimal_digit) m
+let lowercase = range 'a' 'z' "lowercase"
+let uppercase = range 'A' 'Z' "uppercase"
+let letter = lowercase ||| uppercase
+let decimal_digit = range '0' '9' "digit"
+let alphanum = letter ||| decimal_digit
 ----
 
 === Strings
@@ -2314,13 +2573,20 @@ digits or underscores but not starting with a digit):
 .usual parsers: identifier
 [source,ml]
 ----
-let underscore m = item ~what:"underscore" '_' m
+let underscore = item ~what:"underscore" '_'
 
-let identifier ?(what="identifier") =
+let identifier_with what =
   let first_char = letter ||| underscore in
   let any_char = first_char ||| decimal_digit in
   first_char ++ repeat_greedy ~sep:none ~what any_char >>: fun (c, s) ->
     String.of_list (c :: s)
+
+let default_identifier = identifier_with "identifier"
+
+let identifier ?what =
+  match what with
+  | None -> default_identifier
+  | Some what -> identifier_with what
 ----
 
 === Numbers
@@ -2343,8 +2609,8 @@ cared about efficiency of arithmetic operations we would use +zarith+).
 ----
 type integer = Num.num
 
-let non_zero_decimal_digit m =
-  range '1' '9' "non-zero digit" m
+let non_zero_decimal_digit =
+  range '1' '9' "non-zero digit"
 
 let num_of_char c =
   let cc = Char.code c in
